@@ -1,0 +1,23 @@
+
+server:
+  port: 8080
+
+spring:
+  application:
+    name: web-project
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${DB_URL:jdbc:mysql://localhost:3306/web_project?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD}
+app:
+  jwt:
+    # Token 签发者，用于确认 Token 是不是本项目签发的
+    issuer: web-project
+
+    # 使用环境变量或配置文件提供密钥
+    secret: ${JWT_SECRET}
+
+    # Access Token 有效期，2h 表示两小时
+    access-token-expiration: 2h
