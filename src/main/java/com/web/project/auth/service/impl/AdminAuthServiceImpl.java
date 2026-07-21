@@ -1,4 +1,4 @@
-package com.web.project.auth.service.Impl;
+package com.web.project.auth.service.impl;
 
 import com.web.project.admin.entity.AdminUser;
 import com.web.project.admin.mapper.AdminUserMapper;
@@ -7,9 +7,9 @@ import com.web.project.auth.service.AdminAuthService;
 import com.web.project.auth.service.JwtTokenService;
 import com.web.project.auth.vo.AdminInfoVO;
 import com.web.project.auth.vo.AdminLoginVO;
+import com.web.project.common.error.ErrorCode;
 import com.web.project.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -46,7 +46,7 @@ public class AdminAuthServiceImpl implements AdminAuthService {
                         loginDTO.password(),
                         adminUser.getPassword()
                 )) {
-            throw new BusinessException(401, "账号或密码错误");
+            throw new BusinessException(ErrorCode.INVALID_CREDENTIALS); //账号或密码错误
         }
 
         /*
@@ -54,7 +54,7 @@ public class AdminAuthServiceImpl implements AdminAuthService {
          * 1 表示正常，0 表示禁用。
          */
         if (!Integer.valueOf(1).equals(adminUser.getStatus())) {
-            throw new BusinessException(403, "当前账号已被禁用");
+            throw new BusinessException(ErrorCode.ADMIN_DISABLED); //当前账号已被禁用
         }
 
         // 账号验证成功，生成 JWT
@@ -84,7 +84,7 @@ public class AdminAuthServiceImpl implements AdminAuthService {
          * 此时当前登录状态应当视为失效。
          */
         if (adminUser == null) {
-            throw new BusinessException(401, "登录状态已失效");
+            throw new BusinessException(ErrorCode.LOGIN_STATUS_INVALID); //登录状态无效或已过期
         }
 
         /*
@@ -92,7 +92,7 @@ public class AdminAuthServiceImpl implements AdminAuthService {
          * 因此不能只相信 Token，还要查询数据库中的最新状态。
          */
         if (!Integer.valueOf(1).equals(adminUser.getStatus())) {
-            throw new BusinessException(403, "当前账号已被禁用");
+            throw new BusinessException(ErrorCode.ADMIN_DISABLED); //当前账号已被禁用
         }
 
         return new AdminInfoVO(

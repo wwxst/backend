@@ -1,5 +1,6 @@
 package com.web.project.common.exception;
 
+import com.web.project.common.error.ErrorCode;
 import lombok.Getter;
 
 /**
@@ -11,28 +12,31 @@ import lombok.Getter;
 public class BusinessException extends RuntimeException {
 
     /**
-     * 业务状态码。
+     * 当前异常对应的错误码定义。
      */
-    private final int code;
+    private final ErrorCode errorCode;
 
     /**
-     * 创建带自定义状态码的业务异常。
+     * 使用统一错误码创建业务异常。
      *
-     * @param code    业务状态码
-     * @param message 错误提示
+     * @param errorCode 错误码枚举
      */
-    public BusinessException(int code, String message) {
-        // RuntimeException 负责保存异常提示信息
-        super(message);
-        this.code = code;
+    public BusinessException(ErrorCode errorCode) {
+        // 暂时使用默认中文提示作为异常消息
+        super(errorCode.getDefaultMessage());
+        this.errorCode = errorCode;
     }
 
     /**
-     * 创建默认状态码为 400 的业务异常。
+     * 使用统一错误码，并自定义本次提示。
      *
-     * @param message 错误提示
+     * 仅在提示需要包含动态数据时使用。
      */
-    public BusinessException(String message) {
-        this(400, message);
+    public BusinessException(
+            ErrorCode errorCode,
+            String message
+    ) {
+        super(message);
+        this.errorCode = errorCode;
     }
 }

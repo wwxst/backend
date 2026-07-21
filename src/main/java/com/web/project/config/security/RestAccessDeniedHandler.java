@@ -1,5 +1,6 @@
 package com.web.project.config.security;
 
+import com.web.project.common.error.ErrorCode;
 import com.web.project.common.result.Result;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -37,7 +38,7 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
 
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
 
-        Result<Void> result = Result.error(403, "没有权限访问该接口");
+        Result<Void> result = Result.error(ErrorCode.ACCESS_DENIED.getCode(), ErrorCode.ACCESS_DENIED.getDefaultMessage()); //没有权限访问该接口
 
         objectMapper.writeValue(response.getOutputStream(), result);
     }

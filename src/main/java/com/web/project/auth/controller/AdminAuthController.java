@@ -4,6 +4,7 @@ import com.web.project.auth.dto.LoginDTO;
 import com.web.project.auth.service.AdminAuthService;
 import com.web.project.auth.vo.AdminInfoVO;
 import com.web.project.auth.vo.AdminLoginVO;
+import com.web.project.common.error.ErrorCode;
 import com.web.project.common.exception.BusinessException;
 import com.web.project.common.result.Result;
 import jakarta.validation.Valid;
@@ -43,14 +44,14 @@ public class AdminAuthController {
          */
         String subject = jwt.getSubject();
         if (subject == null) {
-            throw new BusinessException(401, "登录状态无效");
+            throw new BusinessException(ErrorCode.LOGIN_STATUS_INVALID); //登录状态无效或已过期
         }
         Long adminId;
         try {
             // 把字符串形式的管理员 ID 转成 Long
             adminId = Long.valueOf(subject);
         } catch (NumberFormatException exception) {
-            throw new BusinessException(401, "登录状态无效");
+            throw new BusinessException(ErrorCode.LOGIN_STATUS_INVALID);//登录状态无效或已过期
         }
         AdminInfoVO adminInfoVO =
                 adminAuthService.getCurrentAdmin(adminId);

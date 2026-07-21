@@ -1,5 +1,6 @@
 package com.web.project.config.security;
 
+import com.web.project.common.error.ErrorCode;
 import com.web.project.common.result.Result;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -46,8 +47,9 @@ public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
         );
 
         Result<Void> result = Result.error(
-                401,
-                "登录状态无效或已过期"
+                //登录状态无效或已过期
+                ErrorCode.LOGIN_STATUS_INVALID.getCode(),
+                ErrorCode.LOGIN_STATUS_INVALID.getDefaultMessage()
         );
 
         // 将 Result 对象转换成 JSON 写入响应

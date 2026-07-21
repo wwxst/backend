@@ -88,10 +88,7 @@
             <version>4.0.1</version>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>junit</groupId>
-            <artifactId>junit</artifactId>
-        </dependency>
+
 
         <!--OAuth2 Resource Server：用于解析和验证前端携带的 Bearer JWT-->
         <dependency>

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+    namespace 必须与 Mapper 接口的完整包名一致
+-->
+<mapper namespace="com.web.project.admin.mapper.AdminUserMapper">
+
+    <!--
+        管理员表的公共查询字段。
+
+        后面的多个查询都可以通过 include 引用，
+        避免重复编写相同字段。
+    -->
+    <sql id="AdminUserColumns">
+        id,
+        username,
+        password,
+        nickname,
+        status,
+        created_at,
+        updated_at
+    </sql>
+
+    <!--
+        id 必须和 Mapper 接口的方法名一致。
+
+        resultType 表示查询结果需要转换成哪个 Java 类型。
+    -->
+    <!-- 根据登录账号查询 管理员 -->
+    <select id="selectByUsername"
+            resultType="com.web.project.admin.entity.AdminUser">
+        SELECT
+        <include refid="AdminUserColumns"/>
+        FROM admin_user
+        WHERE username = #{username}
+        LIMIT 1
+    </select>
+
+    <!-- 根据管理员 ID 查询 -->
+    <select id="selectById"
+            resultType="com.web.project.admin.entity.AdminUser">
+        SELECT
+        <include refid="AdminUserColumns"/>
+        FROM admin_user
+        WHERE id = #{id}
+        LIMIT 1
+    </select>
+
+</mapper>

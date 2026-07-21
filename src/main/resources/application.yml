@@ -10,14 +10,22 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: ${DB_URL:jdbc:mysql://localhost:3306/web_project?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
     username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD}
+    password: ${DB_PASSWORD:123456}
+
+mybatis:
+  # Mapper XML 文件的位置
+  mapper-locations: classpath*:mapper/**/*.xml
+  configuration:
+    # 数据库下划线字段自动映射为 Java 驼峰属性
+    map-underscore-to-camel-case: true
+
 app:
   jwt:
     # Token 签发者，用于确认 Token 是不是本项目签发的
     issuer: web-project
 
     # 使用环境变量或配置文件提供密钥
-    secret: ${JWT_SECRET}
+    secret: ${JWT_SECRET:GnUfr73ua0jeNyfe9sZAGbpJT9cQiTdZuoCmIpKzDRk=}
 
     # Access Token 有效期，2h 表示两小时
     access-token-expiration: 2h

@@ -1,7 +1,9 @@
 package com.web.project.common.exception;
 
+import com.web.project.common.error.ErrorCode;
 import com.web.project.common.result.Result;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -35,10 +37,10 @@ public class GlobalExceptionHandler {
 
         // 正常情况下会有错误信息，这里增加空值判断作为保护
         String message = fieldError == null
-                ? "请求参数不正确"
+                ? ErrorCode.BAD_REQUEST.getDefaultMessage() //请求参数不正确
                 : fieldError.getDefaultMessage();
 
-        return Result.error(400, message);
+        return Result.error(ErrorCode.BAD_REQUEST.getCode(), message);
     }
 
     /**
@@ -50,11 +52,17 @@ public class GlobalExceptionHandler {
      * @return 统一错误结果
      */
     @ExceptionHandler(BusinessException.class)
-    public Result<Void> handleBusinessException(BusinessException exception) {
-        return Result.error(
-                exception.getCode(),
+    public ResponseEntity<Result<Void>> handleBusinessException(BusinessException exception) {
+        ErrorCode errorCode = exception.getErrorCode();
+
+        Result<Void> result = Result.error(
+                errorCode.getCode(),
                 exception.getMessage()
         );
+
+        return ResponseEntity
+                .status(errorCode.getHttpStatus())
+                .body(result);
     }
 
     /**
@@ -72,7 +80,10 @@ public class GlobalExceptionHandler {
         // 不要把数据库、代码路径等详细报错直接返回给前端。
         log.error("服务器内部异常", exception);
 
-        return Result.error(500, "服务器内部异常");
+        return Result.error(
+                //服务器内部异常
+                ErrorCode.INTERNAL_SERVER_ERROR.getCode(),
+                ErrorCode.INTERNAL_SERVER_ERROR.getDefaultMessage());
     }
 
 }
