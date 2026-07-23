@@ -2,6 +2,7 @@ package com.web.project.auth.service;
 
 import com.web.project.admin.entity.AdminUser;
 import com.web.project.config.properties.JwtProperties;
+import com.web.project.user.entity.UserAccount;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
@@ -14,7 +15,7 @@ import java.util.UUID;
 /**
  * JWT Token 业务类。
  *
- * 负责根据登录用户信息生成 Token。
+ * 负责生成管理员和普通用户的访问令牌。
  */
 @Service
 @RequiredArgsConstructor
@@ -25,47 +26,89 @@ public class JwtTokenService {
     /**
      * 为管理员生成 Access Token。
      *
-     * @param adminUser 已通过账号密码验证的管理员
+     * @param adminUser 已通过身份验证的管理员
      * @return JWT 字符串
      */
     public String createAdminAccessToken(AdminUser adminUser) {
-        // 当前时间
+        return createAccessToken(
+                adminUser.getId(),
+                adminUser.getUsername(),
+                "ADMIN",
+                "admin"
+        );
+    }
+
+    /**
+     * 为普通用户生成 Access Token。
+     *
+     * @param userAccount 已通过身份验证的普通用户
+     * @return JWT 字符串
+     */
+    public String createUserAccessToken(UserAccount userAccount) {
+        return createAccessToken(
+                userAccount.getId(),
+                userAccount.getUsername(),
+                "USER",
+                "user"
+        );
+    }
+
+    /**
+     * 统一生成访问令牌。
+     *
+     * 管理员和普通用户的 Token 结构基本一致，
+     * 只有用户类型和权限范围不同，因此抽成公共方法。
+     *
+     * @param id       当前账号 ID
+     * @param username 登录账号
+     * @param userType 用户类型：ADMIN 或 USER
+     * @param scope    权限范围：admin 或 user
+     * @return JWT 字符串
+     */
+    private String createAccessToken(
+            Long id,
+            String username,
+            String userType,
+            String scope
+    ) {
         Instant now = Instant.now();
 
         /*
-         * JWT 中保存的信息叫 Claims。
-         *
-         * 注意：
-         * JWT 是签名，不是加密。
-         * 不要把密码、身份证、密钥等敏感信息放进去。
+         * JWT 是签名数据，不是加密数据。
+         * 不要把密码、身份证、密钥等敏感信息放入 Claims。
          */
         JwtClaimsSet claims = JwtClaimsSet.builder()
-
-                // iss：Token 的签发者
+                // Token 签发者
                 .issuer(jwtProperties.issuer())
 
-                // sub：Token 对应的主体，这里存管理员 ID
-                .subject(adminUser.getId().toString())
+                // Token 所属账号 ID
+                .subject(id.toString())
 
-                // jti：每一个 Token 的唯一编号
+                // 每个 Token 的唯一编号
                 .id(UUID.randomUUID().toString())
 
-                // iat：Token 的签发时间
+                // 签发时间
                 .issuedAt(now)
 
-                // exp：Token 的失效时间
-                .expiresAt(now.plus(jwtProperties.accessTokenExpiration()))
-                // 自定义字段：管理员账号
-                .claim("username", adminUser.getUsername())
+                // 失效时间
+                .expiresAt(
+                        now.plus(
+                                jwtProperties.accessTokenExpiration()
+                        )
+                )
 
-                // 自定义字段：用户类型
-                .claim("userType", "ADMIN")
+                // 登录账号
+                .claim("username", username)
+
+                // 区分管理员和普通用户
+                .claim("userType", userType)
 
                 /*
-                 * scope 会被 Spring Security
-                 * 自动转换成 SCOPE_admin 权限。
+                 * admin 会转换成 SCOPE_admin；
+                 * user 会转换成 SCOPE_user。
                  */
-                .claim("scope", "admin")
+                .claim("scope", scope)
+
                 .build();
 
         return jwtEncoder

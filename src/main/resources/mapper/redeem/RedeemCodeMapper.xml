@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.web.project.redeem.mapper.RedeemCodeMapper">
+
+    <!-- 批量插入兑换码 -->
+    <insert id="batchInsert">
+        INSERT INTO redeem_code
+        (
+        batch_id,
+        plan_id,
+        code_hash,
+        code_masked,
+        status,
+        expires_at
+        )
+        VALUES
+        <foreach collection="codes"
+                 item="code"
+                 separator=",">
+            (
+            #{code.batchId},
+            #{code.planId},
+            #{code.codeHash},
+            #{code.codeMasked},
+            #{code.status},
+            #{code.expiresAt}
+            )
+        </foreach>
+    </insert>
+
+</mapper>

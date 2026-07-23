@@ -1,7 +1,7 @@
 package com.web.project;
 
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 import java.security.SecureRandom;
 import java.util.Base64;
 

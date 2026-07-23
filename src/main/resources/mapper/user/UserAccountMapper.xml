@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.web.project.user.mapper.UserAccountMapper">
+
+    <!--
+        登录和查询详情需要的完整字段。
+        包含 password，只能用于后端身份验证。
+    -->
+    <sql id="UserAccountColumns">
+        id,
+        username,
+        password,
+        nickname,
+        status,
+        created_at,
+        updated_at
+    </sql>
+
+    <!--
+        列表查询使用的安全字段。
+        不查询 password，减少密码密文在程序中的流转。
+    -->
+    <sql id="UserAccountSafeColumns">
+        id,
+        username,
+        nickname,
+        status,
+        created_at,
+        updated_at
+    </sql>
+
+    <!-- 用户列表公共查询条件 -->
+    <sql id="UserAccountConditions">
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                username LIKE CONCAT('%', #{keyword}, '%')
+                OR nickname LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+
+            <if test="status != null">
+                AND status = #{status}
+            </if>
+        </where>
+    </sql>
+
+    <!-- 根据用户名查询用户，供登录使用 -->
+    <select id="selectByUsername"
+            resultType="com.web.project.user.entity.UserAccount">
+        SELECT
+        <include refid="UserAccountColumns"/>
+        FROM user_account
+        WHERE username = #{username}
+        LIMIT 1
+    </select>
+
+    <!-- 根据 ID 查询用户 -->
+    <select id="selectById"
+            resultType="com.web.project.user.entity.UserAccount">
+        SELECT
+        <include refid="UserAccountColumns"/>
+        FROM user_account
+        WHERE id = #{id}
+        LIMIT 1
+    </select>
+
+    <!-- 查询符合条件的用户总数 -->
+    <select id="countByCondition"
+            resultType="long">
+        SELECT COUNT(*)
+        FROM user_account
+        <include refid="UserAccountConditions"/>
+    </select>
+
+    <!-- 分页查询用户列表 -->
+    <select id="selectPageByCondition"
+            resultType="com.web.project.user.entity.UserAccount">
+        SELECT
+        <include refid="UserAccountSafeColumns"/>
+        FROM user_account
+        <include refid="UserAccountConditions"/>
+        ORDER BY id DESC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+</mapper>

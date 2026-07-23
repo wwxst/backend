@@ -14,7 +14,7 @@ class PasswordEncoderTest {
                 new BCryptPasswordEncoder();
 
         String encodedPassword =
-                passwordEncoder.encode("Admin12345678");
+                passwordEncoder.encode("user12345678");
 
         System.out.println(encodedPassword);
     }

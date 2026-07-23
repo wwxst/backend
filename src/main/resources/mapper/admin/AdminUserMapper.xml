@@ -4,17 +4,9 @@
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
-<!--
-    namespace 必须与 Mapper 接口的完整包名一致
--->
 <mapper namespace="com.web.project.admin.mapper.AdminUserMapper">
 
-    <!--
-        管理员表的公共查询字段。
-
-        后面的多个查询都可以通过 include 引用，
-        避免重复编写相同字段。
-    -->
+    <!-- 管理员表的公共查询字段 -->
     <sql id="AdminUserColumns">
         id,
         username,
@@ -26,11 +18,30 @@
     </sql>
 
     <!--
-        id 必须和 Mapper 接口的方法名一致。
+        管理员列表公共查询条件。
 
-        resultType 表示查询结果需要转换成哪个 Java 类型。
+        keyword 不为空时：
+        同时搜索 username 和 nickname。
+
+        status 不为空时：
+        按管理员状态筛选。
     -->
-    <!-- 根据登录账号查询 管理员 -->
+    <sql id="AdminUserConditions">
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                username LIKE CONCAT('%', #{keyword}, '%')
+                OR nickname LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+
+            <if test="status != null">
+                AND status = #{status}
+            </if>
+        </where>
+    </sql>
+
+    <!-- 根据账号查询管理员 -->
     <select id="selectByUsername"
             resultType="com.web.project.admin.entity.AdminUser">
         SELECT
@@ -40,7 +51,7 @@
         LIMIT 1
     </select>
 
-    <!-- 根据管理员 ID 查询 -->
+    <!-- 根据 ID 查询管理员 -->
     <select id="selectById"
             resultType="com.web.project.admin.entity.AdminUser">
         SELECT
@@ -48,6 +59,25 @@
         FROM admin_user
         WHERE id = #{id}
         LIMIT 1
+    </select>
+
+    <!-- 查询符合条件的数据总数 -->
+    <select id="countByCondition"
+            resultType="long">
+        SELECT COUNT(*)
+        FROM admin_user
+        <include refid="AdminUserConditions"/>
+    </select>
+
+    <!-- 分页查询管理员列表 -->
+    <select id="selectPageByCondition"
+            resultType="com.web.project.admin.entity.AdminUser">
+        SELECT
+        <include refid="AdminUserColumns"/>
+        FROM admin_user
+        <include refid="AdminUserConditions"/>
+        ORDER BY id DESC
+        LIMIT #{offset}, #{pageSize}
     </select>
 
 </mapper>

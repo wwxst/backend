@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.web.project.product.mapper.ProductMapper">
+
+    <!-- 商品表公共字段 -->
+    <sql id="ProductColumns">
+        id,
+        product_code,
+        product_name,
+        description,
+        status,
+        created_at,
+        updated_at
+    </sql>
+
+    <!-- 商品分页查询条件 -->
+    <sql id="ProductConditions">
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                product_code LIKE CONCAT('%', #{keyword}, '%')
+                OR product_name LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+
+            <if test="status != null">
+                AND status = #{status}
+            </if>
+        </where>
+    </sql>
+
+    <!-- 根据 ID 查询商品 -->
+    <select id="selectById"
+            resultType="com.web.project.product.entity.Product">
+        SELECT
+        <include refid="ProductColumns"/>
+        FROM product
+        WHERE id = #{id}
+        LIMIT 1
+    </select>
+
+    <!-- 根据商品编码查询 -->
+    <select id="selectByCode"
+            resultType="com.web.project.product.entity.Product">
+        SELECT
+        <include refid="ProductColumns"/>
+        FROM product
+        WHERE product_code = #{productCode}
+        LIMIT 1
+    </select>
+
+    <!-- 创建商品 -->
+    <insert id="insert"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT INTO product
+        (
+        product_code,
+        product_name,
+        description,
+        status
+        )
+        VALUES
+        (
+        #{productCode},
+        #{productName},
+        #{description},
+        #{status}
+        )
+    </insert>
+
+    <!-- 查询符合条件的商品数量 -->
+    <select id="countByCondition"
+            resultType="long">
+        SELECT COUNT(*)
+        FROM product
+        <include refid="ProductConditions"/>
+    </select>
+
+    <!-- 分页查询商品 -->
+    <select id="selectPageByCondition"
+            resultType="com.web.project.product.entity.Product">
+        SELECT
+        <include refid="ProductColumns"/>
+        FROM product
+        <include refid="ProductConditions"/>
+        ORDER BY id DESC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+</mapper>

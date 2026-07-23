@@ -44,18 +44,27 @@ public class SecurityConfig {
 
                 .authorizeHttpRequests(authorize -> authorize
 
-                        // 登录接口公开访问
+                        // 管理员登录接口公开访问
                         .requestMatchers(
                                 HttpMethod.POST,
                                 "/api/admin/auth/login"
-                        ).permitAll()
+                        )
+                        .permitAll()
 
-                        /*
-                         * 管理端接口必须携带有效 JWT，
-                         * 并且 Token 中必须有 admin scope。
-                         */
+                        // 普通用户登录接口公开访问
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/user/auth/login"
+                        )
+                        .permitAll()
+
+                        // 所有管理端接口必须拥有 admin 权限
                         .requestMatchers("/api/admin/**")
                         .hasAuthority("SCOPE_admin")
+
+                        // 所有普通用户端接口必须拥有 user 权限
+                        .requestMatchers("/api/user/**")
+                        .hasAuthority("SCOPE_user")
 
                         // 其他接口暂时要求登录
                         .anyRequest()
