@@ -18,12 +18,7 @@
         updated_at
     </sql>
 
-    <!--
-        查询订阅并加行锁。
-
-        FOR UPDATE可以防止同一订阅在当前事务结束前，
-        被另一个兑换请求同时修改。
-    -->
+    <!-- 兑换时使用的加锁查询 -->
     <select id="selectForUpdate"
             resultType="com.web.project.subscription.entity.UserSubscription">
         SELECT
@@ -35,7 +30,18 @@
         FOR UPDATE
     </select>
 
-    <!-- 创建订阅 -->
+    <!-- 客户端检查权限时使用的普通查询 -->
+    <select id="selectByUserIdAndProductId"
+            resultType="com.web.project.subscription.entity.UserSubscription">
+        SELECT
+        <include refid="UserSubscriptionColumns"/>
+        FROM user_subscription
+        WHERE user_id = #{userId}
+        AND product_id = #{productId}
+        LIMIT 1
+    </select>
+
+    <!-- 创建用户订阅 -->
     <insert id="insert"
             useGeneratedKeys="true"
             keyProperty="id">
@@ -57,7 +63,7 @@
         )
     </insert>
 
-    <!-- 修改到期时间 -->
+    <!-- 延长订阅时间 -->
     <update id="updateExpiration">
         UPDATE user_subscription
         SET expires_at = #{expiresAt},

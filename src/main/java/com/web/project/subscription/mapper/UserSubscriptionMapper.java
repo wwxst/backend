@@ -23,6 +23,17 @@ public interface UserSubscriptionMapper {
     );
 
     /**
+     * 查询用户对某个商品的订阅。
+     *
+     * 这是普通查询，不加数据库行锁，
+     * 用于客户端检查当前使用权限。
+     */
+    UserSubscription selectByUserIdAndProductId(
+            @Param("userId") Long userId,
+            @Param("productId") Long productId
+    );
+
+    /**
      * 新增用户订阅。
      */
     int insert(UserSubscription subscription);

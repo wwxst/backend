@@ -70,7 +70,6 @@ public enum ErrorCode {
     REDEEM_CODE_DISABLED(40912, HttpStatus.CONFLICT, "redeem.code_disabled", "兑换码已被停用"),
 
     //兑换码所属批次已被停用。
-
     REDEEM_BATCH_DISABLED(40913, HttpStatus.CONFLICT, "redeem.batch_disabled", "兑换码所属批次已被停用"),
 
 
