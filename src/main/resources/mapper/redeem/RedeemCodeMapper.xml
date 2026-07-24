@@ -6,6 +6,20 @@
 
 <mapper namespace="com.web.project.redeem.mapper.RedeemCodeMapper">
 
+    <!-- 兑换码公共字段 -->
+    <sql id="RedeemCodeColumns">
+        id,
+        batch_id,
+        plan_id,
+        code_hash,
+        code_masked,
+        status,
+        expires_at,
+        redeemed_user_id,
+        redeemed_at,
+        created_at
+    </sql>
+
     <!-- 批量插入兑换码 -->
     <insert id="batchInsert">
         INSERT INTO redeem_code
@@ -18,9 +32,7 @@
         expires_at
         )
         VALUES
-        <foreach collection="codes"
-                 item="code"
-                 separator=",">
+        <foreach collection="codes" item="code" separator=",">
             (
             #{code.batchId},
             #{code.planId},
@@ -31,5 +43,30 @@
             )
         </foreach>
     </insert>
+
+    <!-- 根据兑换码哈希查询 -->
+    <select id="selectByCodeHash"
+            resultType="com.web.project.redeem.entity.RedeemCode">
+        SELECT
+        <include refid="RedeemCodeColumns"/>
+        FROM redeem_code
+        WHERE code_hash = #{codeHash}
+        LIMIT 1
+    </select>
+
+    <!--
+        原子标记为已兑换。
+
+        只有当前状态仍然是未兑换时才会更新成功。
+        两个请求同时兑换同一个码时，只有一个请求能更新1行。
+    -->
+    <update id="markAsRedeemed">
+        UPDATE redeem_code
+        SET status = #{redeemedStatus},
+        redeemed_user_id = #{userId},
+        redeemed_at = #{redeemedAt}
+        WHERE id = #{id}
+        AND status = #{unusedStatus}
+    </update>
 
 </mapper>

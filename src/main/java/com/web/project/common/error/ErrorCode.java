@@ -30,6 +30,9 @@ public enum ErrorCode {
     //普通用户账号被禁用。
     USER_DISABLED(40303, HttpStatus.FORBIDDEN, "user.disabled", "当前用户账号已被禁用"),
 
+    /**
+     * 商品错误状态码
+     */
     //商品不存在。
     PRODUCT_NOT_FOUND(40401, HttpStatus.NOT_FOUND, "product.not_found", "商品不存在"),
 
@@ -57,10 +60,8 @@ public enum ErrorCode {
     //兑换码不存在。
     REDEEM_CODE_NOT_FOUND(40410, HttpStatus.NOT_FOUND, "redeem.code_not_found", "兑换码不存在"),
 
-
     //兑换码已经被使用。
     REDEEM_CODE_ALREADY_USED(40910, HttpStatus.CONFLICT, "redeem.code_already_used", "兑换码已被使用"),
-
 
     //兑换码已经过期。
     REDEEM_CODE_EXPIRED(40911, HttpStatus.CONFLICT, "redeem.code_expired", "兑换码已过期"),
@@ -68,9 +69,15 @@ public enum ErrorCode {
     //兑换码已被停用。
     REDEEM_CODE_DISABLED(40912, HttpStatus.CONFLICT, "redeem.code_disabled", "兑换码已被停用"),
 
-    //服务器内部未知异常。
-    INTERNAL_SERVER_ERROR(50000, HttpStatus.INTERNAL_SERVER_ERROR, "common.internal_server_error", "服务器内部异常");
+    //兑换码所属批次已被停用。
 
+    REDEEM_BATCH_DISABLED(40913, HttpStatus.CONFLICT, "redeem.batch_disabled", "兑换码所属批次已被停用"),
+
+
+    /**
+     * 服务器内部未知异常。
+     */
+    INTERNAL_SERVER_ERROR(50000, HttpStatus.INTERNAL_SERVER_ERROR, "common.internal_server_error", "服务器内部异常");
 
     /**
      * 返回给前端的业务错误码。

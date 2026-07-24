@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.web.project.subscription.mapper.UserSubscriptionMapper">
+
+    <!-- 用户订阅公共字段 -->
+    <sql id="UserSubscriptionColumns">
+        id,
+        user_id,
+        product_id,
+        started_at,
+        expires_at,
+        status,
+        created_at,
+        updated_at
+    </sql>
+
+    <!--
+        查询订阅并加行锁。
+
+        FOR UPDATE可以防止同一订阅在当前事务结束前，
+        被另一个兑换请求同时修改。
+    -->
+    <select id="selectForUpdate"
+            resultType="com.web.project.subscription.entity.UserSubscription">
+        SELECT
+        <include refid="UserSubscriptionColumns"/>
+        FROM user_subscription
+        WHERE user_id = #{userId}
+        AND product_id = #{productId}
+        LIMIT 1
+        FOR UPDATE
+    </select>
+
+    <!-- 创建订阅 -->
+    <insert id="insert"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT INTO user_subscription
+        (
+        user_id,
+        product_id,
+        started_at,
+        expires_at,
+        status
+        )
+        VALUES
+        (
+        #{userId},
+        #{productId},
+        #{startedAt},
+        #{expiresAt},
+        #{status}
+        )
+    </insert>
+
+    <!-- 修改到期时间 -->
+    <update id="updateExpiration">
+        UPDATE user_subscription
+        SET expires_at = #{expiresAt},
+        status = #{status}
+        WHERE id = #{id}
+    </update>
+
+</mapper>

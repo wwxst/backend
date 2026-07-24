@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.web.project.redeem.mapper.RedeemRecordMapper">
+
+    <insert id="insert"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT INTO redeem_record
+        (
+        redeem_code_id,
+        batch_id,
+        plan_id,
+        user_id,
+        plan_name,
+        duration_days,
+        redeemed_at,
+        redeem_ip
+        )
+        VALUES
+        (
+        #{redeemCodeId},
+        #{batchId},
+        #{planId},
+        #{userId},
+        #{planName},
+        #{durationDays},
+        #{redeemedAt},
+        #{redeemIp}
+        )
+    </insert>
+
+</mapper>

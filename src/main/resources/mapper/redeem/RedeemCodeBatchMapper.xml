@@ -6,6 +6,20 @@
 
 <mapper namespace="com.web.project.redeem.mapper.RedeemCodeBatchMapper">
 
+    <!-- 兑换码批次公共字段 -->
+    <sql id="RedeemCodeBatchColumns">
+        id,
+        batch_no,
+        plan_id,
+        quantity,
+        channel,
+        expires_at,
+        status,
+        created_by,
+        created_at
+    </sql>
+
+    <!-- 创建兑换码批次 -->
     <insert id="insert"
             useGeneratedKeys="true"
             keyProperty="id">
@@ -30,5 +44,15 @@
         #{createdBy}
         )
     </insert>
+
+    <!-- 根据批次ID查询 -->
+    <select id="selectById"
+            resultType="com.web.project.redeem.entity.RedeemCodeBatch">
+        SELECT
+        <include refid="RedeemCodeBatchColumns"/>
+        FROM redeem_code_batch
+        WHERE id = #{id}
+        LIMIT 1
+    </select>
 
 </mapper>
