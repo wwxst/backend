@@ -19,6 +19,27 @@
         created_at
     </sql>
 
+    <!-- 兑换码批次列表公共筛选条件 -->
+    <sql id="RedeemCodeBatchWhere">
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                batch.batch_no LIKE CONCAT('%', #{keyword}, '%')
+                OR batch.channel LIKE CONCAT('%', #{keyword}, '%')
+                OR plan.plan_name LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+
+            <if test="planId != null">
+                AND batch.plan_id = #{planId}
+            </if>
+
+            <if test="status != null">
+                AND batch.status = #{status}
+            </if>
+        </where>
+    </sql>
+
     <!-- 创建兑换码批次 -->
     <insert id="insert"
             useGeneratedKeys="true"
@@ -53,6 +74,55 @@
         FROM redeem_code_batch
         WHERE id = #{id}
         LIMIT 1
+    </select>
+
+    <!-- 查询符合条件的批次总数 -->
+    <select id="countByCondition" resultType="long">
+        SELECT COUNT(*)
+        FROM redeem_code_batch batch
+        INNER JOIN product_plan plan
+        ON plan.id = batch.plan_id
+
+        <include refid="RedeemCodeBatchWhere"/>
+    </select>
+
+    <!-- 分页查询兑换码批次及兑换码状态数量 -->
+    <select id="selectPageByCondition"
+            resultType="com.web.project.redeem.mapper.model.RedeemCodeBatchListRow">
+
+        SELECT
+        batch.id,
+        batch.batch_no,
+        batch.plan_id,
+        plan.plan_name,
+        plan.duration_days,
+        batch.quantity,
+        COALESCE(code_stats.unused_quantity, 0) AS unused_quantity,
+        COALESCE(code_stats.redeemed_quantity, 0) AS redeemed_quantity,
+        COALESCE(code_stats.disabled_quantity, 0) AS disabled_quantity,
+        batch.channel,
+        batch.status,
+        batch.expires_at,
+        batch.created_by,
+        batch.created_at
+        FROM redeem_code_batch batch
+        INNER JOIN product_plan plan
+        ON plan.id = batch.plan_id
+        LEFT JOIN (
+        SELECT
+        batch_id,
+        COUNT(CASE WHEN status = 0 THEN 1 END) AS unused_quantity,
+        COUNT(CASE WHEN status = 1 THEN 1 END) AS redeemed_quantity,
+        COUNT(CASE WHEN status = 2 THEN 1 END) AS disabled_quantity
+        FROM redeem_code
+        GROUP BY batch_id
+        ) code_stats
+        ON code_stats.batch_id = batch.id
+
+        <include refid="RedeemCodeBatchWhere"/>
+
+        ORDER BY batch.id DESC
+        LIMIT #{offset}, #{pageSize}
     </select>
 
 </mapper>

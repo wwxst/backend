@@ -2,18 +2,18 @@ package com.web.project.redeem.controller;
 
 import com.web.project.common.error.ErrorCode;
 import com.web.project.common.exception.BusinessException;
+import com.web.project.common.result.PageResult;
 import com.web.project.common.result.Result;
 import com.web.project.redeem.dto.CreateRedeemCodeBatchDTO;
+import com.web.project.redeem.dto.RedeemCodeBatchQueryDTO;
 import com.web.project.redeem.service.RedeemCodeBatchService;
 import com.web.project.redeem.vo.RedeemCodeBatchCreateVO;
+import com.web.project.redeem.vo.RedeemCodeBatchListVO;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 /**
  * 后台兑换码批次管理接口。
@@ -64,5 +64,18 @@ public class RedeemCodeBatchController {
                     ErrorCode.LOGIN_STATUS_INVALID
             );
         }
+    }
+
+    /**
+     * 分页查询兑换码批次。
+     */
+    @GetMapping
+    public Result<PageResult<RedeemCodeBatchListVO>> getBatchPage(
+            @Valid @ModelAttribute RedeemCodeBatchQueryDTO queryDTO
+    ) {
+        PageResult<RedeemCodeBatchListVO> pageResult =
+                batchService.getBatchPage(queryDTO);
+
+        return Result.success(pageResult);
     }
 }
