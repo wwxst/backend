@@ -69,4 +69,56 @@
         AND status = #{unusedStatus}
     </update>
 
+    <!-- 兑换码列表公共查询条件 -->
+    <sql id="RedeemCodeListWhere">
+        WHERE code.batch_id = #{batchId}
+
+        <if test="keyword != null and keyword != ''">
+            AND (
+            code.code_masked LIKE CONCAT('%', #{keyword}, '%')
+            OR account.username LIKE CONCAT('%', #{keyword}, '%')
+            OR account.nickname LIKE CONCAT('%', #{keyword}, '%')
+            )
+        </if>
+
+        <if test="status != null">
+            AND code.status = #{status}
+        </if>
+    </sql>
+
+    <!-- 查询批次下符合条件的兑换码总数 -->
+    <select id="countByBatchIdAndCondition" resultType="long">
+        SELECT COUNT(*)
+        FROM redeem_code code
+        LEFT JOIN user_account account
+        ON account.id = code.redeemed_user_id
+
+        <include refid="RedeemCodeListWhere"/>
+    </select>
+
+    <!-- 分页查询批次下的兑换码 -->
+    <select id="selectPageByBatchIdAndCondition"
+            resultType="com.web.project.redeem.mapper.model.RedeemCodeListRow">
+        SELECT
+        code.id,
+        code.batch_id,
+        code.plan_id,
+        code.code_masked,
+        code.status,
+        code.expires_at,
+        code.redeemed_user_id,
+        account.username AS redeemed_username,
+        account.nickname AS redeemed_nickname,
+        code.redeemed_at,
+        code.created_at
+        FROM redeem_code code
+        LEFT JOIN user_account account
+        ON account.id = code.redeemed_user_id
+
+        <include refid="RedeemCodeListWhere"/>
+
+        ORDER BY code.id DESC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
 </mapper>

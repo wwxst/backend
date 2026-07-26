@@ -1,6 +1,7 @@
 package com.web.project.redeem.mapper;
 
 import com.web.project.redeem.entity.RedeemCode;
+import com.web.project.redeem.mapper.model.RedeemCodeListRow;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -40,5 +41,25 @@ public interface RedeemCodeMapper {
             @Param("redeemedStatus") Integer redeemedStatus,
             @Param("userId") Long userId,
             @Param("redeemedAt") LocalDateTime redeemedAt
+    );
+
+    /**
+     * 查询某个批次下符合条件的兑换码总数。
+     */
+    long countByBatchIdAndCondition(
+            @Param("batchId") Long batchId,
+            @Param("keyword") String keyword,
+            @Param("status") Integer status
+    );
+
+    /**
+     * 分页查询某个批次下的兑换码。
+     */
+    List<RedeemCodeListRow> selectPageByBatchIdAndCondition(
+            @Param("batchId") Long batchId,
+            @Param("keyword") String keyword,
+            @Param("status") Integer status,
+            @Param("offset") long offset,
+            @Param("pageSize") int pageSize
     );
 }

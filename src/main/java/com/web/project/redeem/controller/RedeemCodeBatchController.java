@@ -6,10 +6,12 @@ import com.web.project.common.result.PageResult;
 import com.web.project.common.result.Result;
 import com.web.project.redeem.dto.CreateRedeemCodeBatchDTO;
 import com.web.project.redeem.dto.RedeemCodeBatchQueryDTO;
+import com.web.project.redeem.dto.RedeemCodeQueryDTO;
 import com.web.project.redeem.dto.UpdateRedeemCodeBatchStatusDTO;
 import com.web.project.redeem.service.RedeemCodeBatchService;
 import com.web.project.redeem.vo.RedeemCodeBatchCreateVO;
 import com.web.project.redeem.vo.RedeemCodeBatchListVO;
+import com.web.project.redeem.vo.RedeemCodeListVO;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -72,5 +74,17 @@ public class RedeemCodeBatchController {
     public Result<Void> updateBatchStatus(@PathVariable Long batchId, @Valid @RequestBody UpdateRedeemCodeBatchStatusDTO updateDTO) {
         batchService.updateBatchStatus(batchId, updateDTO);
         return Result.success();
+    }
+
+    /**
+     * 分页查询指定批次下的兑换码。
+     */
+    @GetMapping("/{batchId}/codes")
+    public Result<PageResult<RedeemCodeListVO>> getCodePage(
+            @PathVariable Long batchId,
+            @Valid @ModelAttribute RedeemCodeQueryDTO queryDTO
+    ) {
+        PageResult<RedeemCodeListVO> pageResult = batchService.getCodePage(batchId, queryDTO);
+        return Result.success(pageResult);
     }
 }

@@ -30,4 +30,21 @@ public enum RedeemCodeStatus {
         this.code = code;
         this.description = description;
     }
+
+    /**
+     * 根据数据库状态值获取状态名称。
+     */
+    public static String descriptionOf(Integer code) {
+        if (code == null) {
+            return "未知";
+        }
+
+        for (RedeemCodeStatus status : values()) {
+            if (status.code == code) {
+                return status.description;
+            }
+        }
+
+        return "未知";
+    }
 }

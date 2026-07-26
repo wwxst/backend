@@ -10,6 +10,7 @@ import com.web.project.product.mapper.ProductMapper;
 import com.web.project.product.mapper.ProductPlanMapper;
 import com.web.project.redeem.dto.CreateRedeemCodeBatchDTO;
 import com.web.project.redeem.dto.RedeemCodeBatchQueryDTO;
+import com.web.project.redeem.dto.RedeemCodeQueryDTO;
 import com.web.project.redeem.dto.UpdateRedeemCodeBatchStatusDTO;
 import com.web.project.redeem.entity.RedeemCode;
 import com.web.project.redeem.entity.RedeemCodeBatch;
@@ -18,10 +19,12 @@ import com.web.project.redeem.enums.RedeemCodeStatus;
 import com.web.project.redeem.mapper.RedeemCodeBatchMapper;
 import com.web.project.redeem.mapper.RedeemCodeMapper;
 import com.web.project.redeem.mapper.model.RedeemCodeBatchListRow;
+import com.web.project.redeem.mapper.model.RedeemCodeListRow;
 import com.web.project.redeem.service.RedeemCodeBatchService;
 import com.web.project.redeem.support.RedeemCodeGenerator;
 import com.web.project.redeem.vo.RedeemCodeBatchCreateVO;
 import com.web.project.redeem.vo.RedeemCodeBatchListVO;
+import com.web.project.redeem.vo.RedeemCodeListVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -191,6 +194,49 @@ public class RedeemCodeBatchServiceImpl implements RedeemCodeBatchService {
     }
 
     /**
+     * 分页查询指定批次下的兑换码。
+     */
+    @Override
+    public PageResult<RedeemCodeListVO> getCodePage(Long batchId, RedeemCodeQueryDTO queryDTO) {
+        if (batchId == null || batchId <= 0) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST);
+        }
+
+        /*
+         * 先检查批次是否存在。
+         *
+         * 即使该批次没有兑换码，也要区分：
+         * 批次不存在，还是批次存在但列表为空。
+         */
+        RedeemCodeBatch batch = batchMapper.selectById(batchId);
+
+        if (batch == null) {
+            throw new BusinessException(ErrorCode.REDEEM_BATCH_NOT_FOUND);
+        }
+
+        int page = queryDTO.getPage();
+        int pageSize = queryDTO.getPageSize();
+        String keyword = normalizeNullableText(queryDTO.getKeyword());
+        Integer status = queryDTO.getStatus();
+
+        long total = redeemCodeMapper.countByBatchIdAndCondition(batchId, keyword, status);
+
+        if (total == 0) {
+            return new PageResult<>(0L, page, pageSize, List.of());
+        }
+
+        long offset = (long) (page - 1) * pageSize;
+
+        List<RedeemCodeListVO> records = redeemCodeMapper
+                .selectPageByBatchIdAndCondition(batchId, keyword, status, offset, pageSize)
+                .stream()
+                .map(this::toRedeemCodeListVO)
+                .toList();
+
+        return new PageResult<>(total, page, pageSize, records);
+    }
+
+    /**
      * 判断批次状态值是否合法。
      */
     private boolean isValidBatchStatus(Integer status) {
@@ -218,6 +264,26 @@ public class RedeemCodeBatchServiceImpl implements RedeemCodeBatchService {
                 RedeemBatchStatus.descriptionOf(row.getStatus()),
                 row.getExpiresAt(),
                 row.getCreatedBy(),
+                row.getCreatedAt()
+        );
+    }
+
+    /**
+     * 将数据库查询结果转换为兑换码列表VO。
+     */
+    private RedeemCodeListVO toRedeemCodeListVO(RedeemCodeListRow row) {
+        return new RedeemCodeListVO(
+                row.getId(),
+                row.getBatchId(),
+                row.getPlanId(),
+                row.getCodeMasked(),
+                row.getStatus(),
+                RedeemCodeStatus.descriptionOf(row.getStatus()),
+                row.getExpiresAt(),
+                row.getRedeemedUserId(),
+                row.getRedeemedUsername(),
+                row.getRedeemedNickname(),
+                row.getRedeemedAt(),
                 row.getCreatedAt()
         );
     }
