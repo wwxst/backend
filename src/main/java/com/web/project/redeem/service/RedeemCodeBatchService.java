@@ -3,6 +3,7 @@ package com.web.project.redeem.service;
 import com.web.project.common.result.PageResult;
 import com.web.project.redeem.dto.CreateRedeemCodeBatchDTO;
 import com.web.project.redeem.dto.RedeemCodeBatchQueryDTO;
+import com.web.project.redeem.dto.UpdateRedeemCodeBatchStatusDTO;
 import com.web.project.redeem.vo.RedeemCodeBatchCreateVO;
 import com.web.project.redeem.vo.RedeemCodeBatchListVO;
 
@@ -23,4 +24,14 @@ public interface RedeemCodeBatchService {
      * 分页查询兑换码批次。
      */
     PageResult<RedeemCodeBatchListVO> getBatchPage(RedeemCodeBatchQueryDTO queryDTO);
+
+    /**
+     * 修改兑换码批次状态。
+     */
+    void updateBatchStatus(
+            Long batchId,
+            UpdateRedeemCodeBatchStatusDTO updateDTO
+    );
+
 }
+

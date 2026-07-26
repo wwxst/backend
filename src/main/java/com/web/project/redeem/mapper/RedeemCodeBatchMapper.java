@@ -42,4 +42,11 @@ public interface RedeemCodeBatchMapper {
             @Param("offset") long offset,
             @Param("pageSize") int pageSize
     );
+    /**
+     * 修改兑换码批次状态。
+     */
+    int updateStatus(
+            @Param("id") Long id,
+            @Param("status") Integer status
+    );
 }

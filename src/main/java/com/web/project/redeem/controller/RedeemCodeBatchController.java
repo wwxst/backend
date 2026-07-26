@@ -6,6 +6,7 @@ import com.web.project.common.result.PageResult;
 import com.web.project.common.result.Result;
 import com.web.project.redeem.dto.CreateRedeemCodeBatchDTO;
 import com.web.project.redeem.dto.RedeemCodeBatchQueryDTO;
+import com.web.project.redeem.dto.UpdateRedeemCodeBatchStatusDTO;
 import com.web.project.redeem.service.RedeemCodeBatchService;
 import com.web.project.redeem.vo.RedeemCodeBatchCreateVO;
 import com.web.project.redeem.vo.RedeemCodeBatchListVO;
@@ -29,18 +30,10 @@ public class RedeemCodeBatchController {
      * 创建兑换码批次并生成兑换码。
      */
     @PostMapping
-    public Result<RedeemCodeBatchCreateVO> createBatch(
-            @AuthenticationPrincipal Jwt jwt,
-            @Valid @RequestBody
-            CreateRedeemCodeBatchDTO createDTO
-    ) {
+    public Result<RedeemCodeBatchCreateVO> createBatch(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody CreateRedeemCodeBatchDTO createDTO) {
         Long adminId = parseAdminId(jwt);
 
-        RedeemCodeBatchCreateVO result =
-                batchService.createBatch(
-                        adminId,
-                        createDTO
-                );
+        RedeemCodeBatchCreateVO result = batchService.createBatch(adminId, createDTO);
 
         return Result.success(result);
     }
@@ -52,17 +45,13 @@ public class RedeemCodeBatchController {
         String subject = jwt.getSubject();
 
         if (subject == null) {
-            throw new BusinessException(
-                    ErrorCode.LOGIN_STATUS_INVALID
-            );
+            throw new BusinessException(ErrorCode.LOGIN_STATUS_INVALID);
         }
 
         try {
             return Long.valueOf(subject);
         } catch (NumberFormatException exception) {
-            throw new BusinessException(
-                    ErrorCode.LOGIN_STATUS_INVALID
-            );
+            throw new BusinessException(ErrorCode.LOGIN_STATUS_INVALID);
         }
     }
 
@@ -70,12 +59,18 @@ public class RedeemCodeBatchController {
      * 分页查询兑换码批次。
      */
     @GetMapping
-    public Result<PageResult<RedeemCodeBatchListVO>> getBatchPage(
-            @Valid @ModelAttribute RedeemCodeBatchQueryDTO queryDTO
-    ) {
-        PageResult<RedeemCodeBatchListVO> pageResult =
-                batchService.getBatchPage(queryDTO);
+    public Result<PageResult<RedeemCodeBatchListVO>> getBatchPage(@Valid @ModelAttribute RedeemCodeBatchQueryDTO queryDTO) {
+        PageResult<RedeemCodeBatchListVO> pageResult = batchService.getBatchPage(queryDTO);
 
         return Result.success(pageResult);
+    }
+
+    /**
+     * 启用或停用兑换码批次。
+     */
+    @PatchMapping("/{batchId}/status")
+    public Result<Void> updateBatchStatus(@PathVariable Long batchId, @Valid @RequestBody UpdateRedeemCodeBatchStatusDTO updateDTO) {
+        batchService.updateBatchStatus(batchId, updateDTO);
+        return Result.success();
     }
 }

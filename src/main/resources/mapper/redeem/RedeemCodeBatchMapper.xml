@@ -125,4 +125,10 @@
         LIMIT #{offset}, #{pageSize}
     </select>
 
+    <!-- 修改兑换码批次状态 -->
+    <update id="updateStatus">
+        UPDATE redeem_code_batch
+        SET status = #{status}
+        WHERE id = #{id}
+    </update>
 </mapper>

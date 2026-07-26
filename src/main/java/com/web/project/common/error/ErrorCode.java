@@ -60,6 +60,9 @@ public enum ErrorCode {
     //兑换码不存在。
     REDEEM_CODE_NOT_FOUND(40410, HttpStatus.NOT_FOUND, "redeem.code_not_found", "兑换码不存在"),
 
+    // 兑换码批次不存在。
+    REDEEM_BATCH_NOT_FOUND(40411, HttpStatus.NOT_FOUND, "redeem.batch_not_found", "兑换码批次不存在"),
+
     //兑换码已经被使用。
     REDEEM_CODE_ALREADY_USED(40910, HttpStatus.CONFLICT, "redeem.code_already_used", "兑换码已被使用"),
 

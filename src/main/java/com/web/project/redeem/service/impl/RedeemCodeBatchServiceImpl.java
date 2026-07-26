@@ -10,6 +10,7 @@ import com.web.project.product.mapper.ProductMapper;
 import com.web.project.product.mapper.ProductPlanMapper;
 import com.web.project.redeem.dto.CreateRedeemCodeBatchDTO;
 import com.web.project.redeem.dto.RedeemCodeBatchQueryDTO;
+import com.web.project.redeem.dto.UpdateRedeemCodeBatchStatusDTO;
 import com.web.project.redeem.entity.RedeemCode;
 import com.web.project.redeem.entity.RedeemCodeBatch;
 import com.web.project.redeem.enums.RedeemBatchStatus;
@@ -149,6 +150,51 @@ public class RedeemCodeBatchServiceImpl implements RedeemCodeBatchService {
                 .toList();
 
         return new PageResult<>(total, page, pageSize, records);
+    }
+
+    /**
+     * 启用或停用兑换码批次。
+     */
+    @Override
+    public void updateBatchStatus(Long batchId, UpdateRedeemCodeBatchStatusDTO updateDTO) {
+        if (batchId == null || batchId <= 0) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST);
+        }
+
+        Integer newStatus = updateDTO.status();
+
+        if (!isValidBatchStatus(newStatus)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST);
+        }
+
+        RedeemCodeBatch batch = batchMapper.selectById(batchId);
+
+        if (batch == null) {
+            throw new BusinessException(ErrorCode.REDEEM_BATCH_NOT_FOUND);
+        }
+
+        /*
+         * 当前状态已经等于目标状态时直接返回。
+         *
+         * 例如一个已经停用的批次再次提交停用，
+         * 接口仍然按照成功处理，保证接口具备幂等性。
+         */
+        if (newStatus.equals(batch.getStatus())) {
+            return;
+        }
+
+        int affectedRows = batchMapper.updateStatus(batchId, newStatus);
+
+        if (affectedRows != 1) {
+            throw new BusinessException(ErrorCode.REDEEM_BATCH_NOT_FOUND);
+        }
+    }
+
+    /**
+     * 判断批次状态值是否合法。
+     */
+    private boolean isValidBatchStatus(Integer status) {
+        return Integer.valueOf(RedeemBatchStatus.DISABLED.getCode()).equals(status) || Integer.valueOf(RedeemBatchStatus.ENABLED.getCode()).equals(status);
     }
 
     /**
