@@ -6,6 +6,43 @@
 
 <mapper namespace="com.web.project.redeem.mapper.RedeemRecordMapper">
 
+    <!-- 兑换记录列表公共查询条件 -->
+    <sql id="RedeemRecordWhere">
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                code.code_masked LIKE CONCAT('%', #{keyword}, '%')
+                OR batch.batch_no LIKE CONCAT('%', #{keyword}, '%')
+                OR account.username LIKE CONCAT('%', #{keyword}, '%')
+                OR account.nickname LIKE CONCAT('%', #{keyword}, '%')
+                OR rr.plan_name LIKE CONCAT('%', #{keyword}, '%')
+                OR product.product_name LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+
+            <if test="batchId != null">
+                AND rr.batch_id = #{batchId}
+            </if>
+
+            <if test="planId != null">
+                AND rr.plan_id = #{planId}
+            </if>
+
+            <if test="userId != null">
+                AND rr.user_id = #{userId}
+            </if>
+
+            <if test="startTime != null">
+                AND rr.redeemed_at <![CDATA[ >= ]]> #{startTime}
+            </if>
+
+            <if test="endTime != null">
+                AND rr.redeemed_at <![CDATA[ <= ]]> #{endTime}
+            </if>
+        </where>
+    </sql>
+
+    <!-- 保存兑换记录 -->
     <insert id="insert"
             useGeneratedKeys="true"
             keyProperty="id">
@@ -32,5 +69,62 @@
         #{redeemIp}
         )
     </insert>
+
+    <!-- 查询符合条件的兑换记录总数 -->
+    <select id="countByCondition" resultType="long">
+        SELECT COUNT(*)
+        FROM redeem_record rr
+        LEFT JOIN redeem_code code
+        ON code.id = rr.redeem_code_id
+        LEFT JOIN redeem_code_batch batch
+        ON batch.id = rr.batch_id
+        LEFT JOIN user_account account
+        ON account.id = rr.user_id
+        LEFT JOIN product_plan plan
+        ON plan.id = rr.plan_id
+        LEFT JOIN product product
+        ON product.id = plan.product_id
+
+        <include refid="RedeemRecordWhere"/>
+    </select>
+
+    <!-- 分页查询兑换记录 -->
+    <select id="selectPageByCondition"
+            resultType="com.web.project.redeem.mapper.model.RedeemRecordListRow">
+        SELECT
+        rr.id,
+        rr.redeem_code_id,
+        code.code_masked,
+        rr.batch_id,
+        batch.batch_no,
+        batch.channel,
+        rr.plan_id,
+        rr.plan_name,
+        rr.duration_days,
+        plan.product_id,
+        product.product_code,
+        product.product_name,
+        rr.user_id,
+        account.username,
+        account.nickname,
+        rr.redeemed_at,
+        rr.redeem_ip
+        FROM redeem_record rr
+        LEFT JOIN redeem_code code
+        ON code.id = rr.redeem_code_id
+        LEFT JOIN redeem_code_batch batch
+        ON batch.id = rr.batch_id
+        LEFT JOIN user_account account
+        ON account.id = rr.user_id
+        LEFT JOIN product_plan plan
+        ON plan.id = rr.plan_id
+        LEFT JOIN product product
+        ON product.id = plan.product_id
+
+        <include refid="RedeemRecordWhere"/>
+
+        ORDER BY rr.id DESC
+        LIMIT #{offset}, #{pageSize}
+    </select>
 
 </mapper>
