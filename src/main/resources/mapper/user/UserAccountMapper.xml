@@ -49,26 +49,6 @@
         </where>
     </sql>
 
-    <!-- 新增普通用户 -->
-    <insert id="insert"
-            useGeneratedKeys="true"
-            keyProperty="id">
-        INSERT INTO user_account
-        (
-        username,
-        password,
-        nickname,
-        status
-        )
-        VALUES
-        (
-        #{username},
-        #{password},
-        #{nickname},
-        #{status}
-        )
-    </insert>
-
     <!-- 根据用户名查询用户，供登录使用 -->
     <select id="selectByUsername"
             resultType="com.web.project.user.entity.UserAccount">

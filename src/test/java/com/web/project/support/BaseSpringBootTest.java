@@ -26,6 +26,11 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.*;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
+
+import java.sql.PreparedStatement;
+import java.sql.Statement;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.web.client.HttpClientErrorException;
@@ -178,22 +183,44 @@ public abstract class BaseSpringBootTest {
     // ==================== Data creation helpers ====================
 
     protected AdminUser createAdmin(String username, String password, String nickname) {
+        KeyHolder keyHolder = new GeneratedKeyHolder();
+        jdbcTemplate.update(connection -> {
+            PreparedStatement ps = connection.prepareStatement(
+                    "INSERT INTO admin_user (username, password, nickname, status) VALUES (?, ?, ?, ?)",
+                    Statement.RETURN_GENERATED_KEYS);
+            ps.setString(1, username);
+            ps.setString(2, passwordEncoder.encode(password));
+            ps.setString(3, nickname);
+            ps.setInt(4, 1);
+            return ps;
+        }, keyHolder);
         AdminUser admin = new AdminUser();
+        admin.setId(keyHolder.getKey().longValue());
         admin.setUsername(username);
         admin.setPassword(passwordEncoder.encode(password));
         admin.setNickname(nickname);
         admin.setStatus(1);
-        adminUserMapper.insert(admin);
         return admin;
     }
 
     protected UserAccount createUser(String username, String password, String nickname, int status) {
+        KeyHolder keyHolder = new GeneratedKeyHolder();
+        jdbcTemplate.update(connection -> {
+            PreparedStatement ps = connection.prepareStatement(
+                    "INSERT INTO user_account (username, password, nickname, status) VALUES (?, ?, ?, ?)",
+                    Statement.RETURN_GENERATED_KEYS);
+            ps.setString(1, username);
+            ps.setString(2, passwordEncoder.encode(password));
+            ps.setString(3, nickname);
+            ps.setInt(4, status);
+            return ps;
+        }, keyHolder);
         UserAccount user = new UserAccount();
+        user.setId(keyHolder.getKey().longValue());
         user.setUsername(username);
         user.setPassword(passwordEncoder.encode(password));
         user.setNickname(nickname);
         user.setStatus(status);
-        userAccountMapper.insert(user);
         return user;
     }
 
@@ -267,7 +294,9 @@ public abstract class BaseSpringBootTest {
             code.setCodeHash(redeemCodeGenerator.hashCode(plainCode));
             code.setCodeMasked(redeemCodeGenerator.maskCode(plainCode));
             code.setStatus(0);
-            redeemCodeMapper.insert(code);
+            jdbcTemplate.update(
+                    "INSERT INTO redeem_code (batch_id, plan_id, code_hash, code_masked, status) VALUES (?, ?, ?, ?, ?)",
+                    code.getBatchId(), code.getPlanId(), code.getCodeHash(), code.getCodeMasked(), code.getStatus());
         }
         return batch;
     }
@@ -290,7 +319,9 @@ public abstract class BaseSpringBootTest {
             code.setCodeHash(redeemCodeGenerator.hashCode(plainCode));
             code.setCodeMasked(redeemCodeGenerator.maskCode(plainCode));
             code.setStatus(0);
-            redeemCodeMapper.insert(code);
+            jdbcTemplate.update(
+                    "INSERT INTO redeem_code (batch_id, plan_id, code_hash, code_masked, status) VALUES (?, ?, ?, ?, ?)",
+                    code.getBatchId(), code.getPlanId(), code.getCodeHash(), code.getCodeMasked(), code.getStatus());
         }
         return plainCodes;
     }

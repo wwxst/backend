@@ -20,30 +20,6 @@
         created_at
     </sql>
 
-    <!-- 插入单个兑换码 -->
-    <insert id="insert"
-            useGeneratedKeys="true"
-            keyProperty="id">
-        INSERT INTO redeem_code
-        (
-        batch_id,
-        plan_id,
-        code_hash,
-        code_masked,
-        status,
-        expires_at
-        )
-        VALUES
-        (
-        #{batchId},
-        #{planId},
-        #{codeHash},
-        #{codeMasked},
-        #{status},
-        #{expiresAt}
-        )
-    </insert>
-
     <!-- 批量插入兑换码 -->
     <insert id="batchInsert">
         INSERT INTO redeem_code

@@ -17,11 +17,6 @@ public  interface AdminUserMapper {
     AdminUser selectByUsername(@Param("username") String username);
 
     /**
-     * 新增管理员。
-     */
-    int insert(AdminUser adminUser);
-
-    /**
      * 根据管理员 ID 查询管理员。
      */
     AdminUser selectById(@Param("id") Long id);

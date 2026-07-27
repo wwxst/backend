@@ -194,7 +194,9 @@ class FullIntegrationTest extends BaseSpringBootTest {
         rc.setBatchId(batch.getId()); rc.setPlanId(disabledPlan.getId());
         rc.setCodeHash(redeemCodeGenerator.hashCode(code));
         rc.setCodeMasked(redeemCodeGenerator.maskCode(code)); rc.setStatus(0);
-        redeemCodeMapper.insert(rc);
+        jdbcTemplate.update(
+                "INSERT INTO redeem_code (batch_id, plan_id, code_hash, code_masked, status) VALUES (?, ?, ?, ?, ?)",
+                rc.getBatchId(), rc.getPlanId(), rc.getCodeHash(), rc.getCodeMasked(), rc.getStatus());
         assertEquals(409, postJson("/api/user/redemptions",
                 "{\"code\":\"" + code + "\"}", getUserToken()).getStatusCode().value());
     }

@@ -19,11 +19,6 @@ public interface UserAccountMapper {
     );
 
     /**
-     * 新增普通用户。
-     */
-    int insert(UserAccount userAccount);
-
-    /**
      * 根据用户 ID 查询普通用户（加锁，用于兑换事务）。
      */
     UserAccount selectByIdForUpdate(@Param("id") Long id);
