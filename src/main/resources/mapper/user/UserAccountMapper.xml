@@ -69,6 +69,22 @@
         LIMIT 1
     </select>
 
+    <!--
+    根据用户ID查询并锁定当前用户行。
+
+    FOR UPDATE只有在事务中才有意义。
+    当前事务结束前，其他事务不能同时锁定同一个用户。
+-->
+    <select id="selectByIdForUpdate"
+            resultType="com.web.project.user.entity.UserAccount">
+        SELECT
+        <include refid="UserAccountColumns"/>
+        FROM user_account
+        WHERE id = #{id}
+        LIMIT 1
+        FOR UPDATE
+    </select>
+
     <!-- 查询符合条件的用户总数 -->
     <select id="countByCondition"
             resultType="long">
