@@ -19,4 +19,21 @@ public enum SubscriptionStatus {
         this.code = code;
         this.description = description;
     }
+
+    /**
+     * 根据数据库状态值获取中文说明。
+     */
+    public static String descriptionOf(Integer code) {
+        if (code == null) {
+            return "未知";
+        }
+
+        for (SubscriptionStatus status : values()) {
+            if (status.code == code) {
+                return status.description;
+            }
+        }
+
+        return "未知";
+    }
 }

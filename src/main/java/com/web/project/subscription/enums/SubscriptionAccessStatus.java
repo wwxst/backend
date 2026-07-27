@@ -3,10 +3,10 @@ package com.web.project.subscription.enums;
 import lombok.Getter;
 
 /**
- * 客户端使用权限状态。
+ * 用户最终使用权限状态。
  *
  * 该状态不是数据库字段，
- * 而是后端根据商品、订阅状态和到期时间计算出的结果。
+ * 而是根据用户、商品、订阅状态和到期时间动态计算。
  */
 @Getter
 public enum SubscriptionAccessStatus {
@@ -18,6 +18,8 @@ public enum SubscriptionAccessStatus {
     EXPIRED("已过期"),
 
     DISABLED("订阅已停用"),
+
+    USER_DISABLED("账号已停用"),
 
     PRODUCT_DISABLED("服务已停用");
 

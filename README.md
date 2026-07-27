@@ -32,9 +32,12 @@
 
 ### 兑换码体系
 - 兑换码批次生成（批次编号、数量、销售渠道、过期时间）
+- 兑换码批次管理（分页查询、启用/停用）
 - 兑换码安全管理（SHA-256 哈希存储，后台展示脱敏处理）
+- 批次级联状态控制（批次停用 → 所有下级兑换码不可用）
 - 兑换码状态流转：未兑换 → 已兑换 / 已停用
-- 兑换记录追踪（用户、IP、时间、套餐快照）
+- 兑换记录追踪（兑换码、用户、IP、时间、套餐快照）
+- 兑换记录分页查询（支持按兑换码、用户ID等条件筛选）
 
 ### 用户订阅
 - 用户订阅记录管理（订阅有效期、状态）
@@ -81,32 +84,40 @@ src/main/java/com/web/project/
 │   └── vo/                   # ProductDetailVO, ProductListVO, ProductPlanVO
 │
 ├── redeem/                   # 兑换码模块
-│   ├── controller/           # RedeemCodeBatchController
-│   ├── dto/                  # CreateRedeemCodeBatchDTO
-│   ├── entity/               # RedeemCode, RedeemCodeBatch
+│   ├── controller/           # RedeemCodeBatchController, RedeemRecordController, RedeemController
+│   ├── dto/                  # CreateRedeemCodeBatchDTO, RedeemCodeBatchQueryDTO, RedeemCodeQueryDTO, RedeemRecordQueryDTO, UpdateRedeemCodeBatchStatusDTO, RedeemCodeDTO
+│   ├── entity/               # RedeemCode, RedeemCodeBatch, RedeemRecord
 │   ├── enums/                # RedeemBatchStatus, RedeemCodeStatus
-│   ├── mapper/               # RedeemCodeMapper, RedeemCodeBatchMapper
-│   ├── service/              # RedeemCodeBatchService / impl
+│   ├── mapper/               # RedeemCodeBatchMapper, RedeemCodeMapper, RedeemRecordMapper
+│   │   └── model/            # RedeemCodeBatchListRow, RedeemCodeListRow, RedeemRecordListRow
+│   ├── service/              # RedeemCodeBatchService, RedeemService, RedeemRecordService / impl
 │   ├── support/              # 兑换码生成辅助
-│   └── vo/                   # 视图对象
+│   └── vo/                   # RedeemCodeBatchCreateVO, RedeemCodeBatchListVO, RedeemCodeListVO, RedeemRecordListVO, RedeemResultVO
+│
+├── subscription/             # 用户订阅模块
+│   ├── controller/           # UserSubscriptionController
+│   ├── entity/               # UserSubscription
+│   ├── enums/                # SubscriptionStatus 等
+│   ├── mapper/               # UserSubscriptionMapper
+│   ├── service/              # UserSubscriptionService / impl
+│   └── vo/                   # UserSubscriptionVO
 │
 ├── user/                     # 普通用户模块
 │   ├── controller/           # UserAccountController
-│   ├── dto/                  # DTO 对象
+│   ├── dto/                  # UserAccountQueryDTO
 │   ├── entity/               # UserAccount
 │   ├── mapper/               # UserAccountMapper
-│   ├── service/              # 服务层 / impl
-│   └── vo/                   # UserInfoVO 等
-│
-├── test/                     # 测试控制器（调试用）
+│   ├── service/              # UserAccountService / impl
+│   └── vo/                   # UserAccountListVO, UserInfoVO
 └── WebProjectApplication.java
 
 src/main/resources/
 ├── mapper/                   # MyBatis XML 映射文件
-│   ├── admin/
-│   ├── product/
-│   ├── redeem/
-│   └── user/
+│   ├── admin/                # AdminUserMapper.xml
+│   ├── product/              # ProductMapper.xml, ProductPlanMapper.xml
+│   ├── redeem/               # RedeemCodeBatchMapper.xml, RedeemCodeMapper.xml, RedeemRecordMapper.xml
+│   ├── subscription/         # UserSubscriptionMapper.xml
+│   └── user/                 # UserAccountMapper.xml
 └── application.yml           # 应用配置
 ```
 
@@ -138,11 +149,17 @@ src/main/resources/
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/admin/auth/me` | 获取当前管理员信息 |
-| GET | `/api/admin/users` | 管理员列表（分页） |
-| POST | `/api/admin/users` | 创建管理员 |
-| PUT | `/api/admin/users/{id}` | 更新管理员 |
-| — | `/api/admin/products/**` | 商品与套餐管理 |
-| — | `/api/admin/redeem/**` | 兑换码批次管理 |
+| GET | `/api/admin/admin-users` | 管理员账号列表（分页） |
+| GET | `/api/admin/users` | 普通用户列表（分页） |
+| POST | `/api/admin/products` | 创建商品 |
+| GET | `/api/admin/products` | 商品列表（分页） |
+| POST | `/api/admin/products/{productId}/plans` | 为指定商品创建套餐 |
+| GET | `/api/admin/products/{productId}/plans` | 查询指定商品下的套餐 |
+| POST | `/api/admin/redeem-code-batches` | 创建兑换码批次 |
+| GET | `/api/admin/redeem-code-batches` | 兑换码批次列表（分页） |
+| PATCH | `/api/admin/redeem-code-batches/{batchId}/status` | 启用/停用兑换码批次 |
+| GET | `/api/admin/redeem-code-batches/{batchId}/codes` | 查询批次下的兑换码（分页） |
+| GET | `/api/admin/redeem-records` | 兑换记录列表（分页） |
 
 ### 用户端认证（公开）
 
@@ -155,7 +172,8 @@ src/main/resources/
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/user/auth/me` | 获取当前用户信息 |
-| — | `/api/user/**` | 用户相关操作 |
+| POST | `/api/user/redemptions` | 使用兑换码兑换 |
+| GET | `/api/user/subscription` | 获取当前用户订阅状态 |
 
 ## 环境要求
 

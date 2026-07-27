@@ -71,4 +71,87 @@
         WHERE id = #{id}
     </update>
 
+    <!-- 后台用户订阅列表公共查询条件 -->
+    <sql id="UserSubscriptionListWhere">
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                account.username LIKE CONCAT('%', #{keyword}, '%')
+                OR account.nickname LIKE CONCAT('%', #{keyword}, '%')
+                OR product.product_code LIKE CONCAT('%', #{keyword}, '%')
+                OR product.product_name LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+
+            <if test="userId != null">
+                AND subscription.user_id = #{userId}
+            </if>
+
+            <if test="productId != null">
+                AND subscription.product_id = #{productId}
+            </if>
+
+            <if test="status != null">
+                AND subscription.status = #{status}
+            </if>
+
+            <if test="valid != null and valid == true">
+                AND account.status = 1
+                AND product.status = 1
+                AND subscription.status = 1
+                AND subscription.expires_at <![CDATA[ > ]]> #{currentTime}
+            </if>
+
+            <if test="valid != null and valid == false">
+                AND NOT (
+                account.status = 1
+                AND product.status = 1
+                AND subscription.status = 1
+                AND subscription.expires_at <![CDATA[ > ]]> #{currentTime}
+                )
+            </if>
+        </where>
+    </sql>
+
+    <!-- 查询符合条件的订阅总数 -->
+    <select id="countByCondition" resultType="long">
+        SELECT COUNT(*)
+        FROM user_subscription subscription
+        INNER JOIN user_account account
+        ON account.id = subscription.user_id
+        INNER JOIN product product
+        ON product.id = subscription.product_id
+
+        <include refid="UserSubscriptionListWhere"/>
+    </select>
+
+    <!-- 后台分页查询用户订阅 -->
+    <select id="selectPageByCondition"
+            resultType="com.web.project.subscription.mapper.model.UserSubscriptionListRow">
+        SELECT
+        subscription.id,
+        subscription.user_id,
+        account.username,
+        account.nickname,
+        account.status AS user_status,
+        subscription.product_id,
+        product.product_code,
+        product.product_name,
+        product.status AS product_status,
+        subscription.status,
+        subscription.started_at,
+        subscription.expires_at,
+        subscription.created_at,
+        subscription.updated_at
+        FROM user_subscription subscription
+        INNER JOIN user_account account
+        ON account.id = subscription.user_id
+        INNER JOIN product product
+        ON product.id = subscription.product_id
+
+        <include refid="UserSubscriptionListWhere"/>
+
+        ORDER BY subscription.id DESC
+        LIMIT #{offset}, #{pageSize}
+    </select>
 </mapper>

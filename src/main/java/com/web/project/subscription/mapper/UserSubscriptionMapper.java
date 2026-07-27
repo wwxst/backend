@@ -1,10 +1,12 @@
 package com.web.project.subscription.mapper;
 
 import com.web.project.subscription.entity.UserSubscription;
+import com.web.project.subscription.mapper.model.UserSubscriptionListRow;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 用户订阅数据库操作。
@@ -45,5 +47,31 @@ public interface UserSubscriptionMapper {
             @Param("id") Long id,
             @Param("expiresAt") LocalDateTime expiresAt,
             @Param("status") Integer status
+    );
+
+    /**
+     * 查询符合条件的订阅总数。
+     */
+    long countByCondition(
+            @Param("keyword") String keyword,
+            @Param("userId") Long userId,
+            @Param("productId") Long productId,
+            @Param("status") Integer status,
+            @Param("valid") Boolean valid,
+            @Param("currentTime") LocalDateTime currentTime
+    );
+
+    /**
+     * 分页查询用户订阅。
+     */
+    List<UserSubscriptionListRow> selectPageByCondition(
+            @Param("keyword") String keyword,
+            @Param("userId") Long userId,
+            @Param("productId") Long productId,
+            @Param("status") Integer status,
+            @Param("valid") Boolean valid,
+            @Param("currentTime") LocalDateTime currentTime,
+            @Param("offset") long offset,
+            @Param("pageSize") int pageSize
     );
 }
