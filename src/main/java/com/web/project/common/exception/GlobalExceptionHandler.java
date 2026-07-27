@@ -4,6 +4,9 @@ import com.web.project.common.error.ErrorCode;
 import com.web.project.common.result.Result;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.validation.BindException;
+import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -11,79 +14,104 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /**
  * 全局异常处理器。
- * <p>
- * 项目中的 Controller 或 Service 抛出异常后，
- * 会由这个类统一转换成 Result 返回给前端。
- * 从代码规范和维护性角度，建议按 "具体异常在前，通用兜底在后" 的原则排序
+ *
+ * Controller或Service抛出异常后，
+ * 统一转换为Result格式返回给前端。
  */
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     /**
-     * 处理请求参数校验异常。
+     * 处理@RequestBody参数校验异常。
      *
      * 例如：
-     * 账号为空、密码长度不足等情况。
+     * 账号为空、密码长度不足、兑换码为空。
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public Result<Void> handleMethodArgumentNotValidException(
+    public ResponseEntity<Result<Void>> handleMethodArgumentNotValidException(
             MethodArgumentNotValidException exception
     ) {
-        // 获取第一个字段校验错误
-        FieldError fieldError = exception
-                .getBindingResult()
-                .getFieldError();
+        String message = getValidationMessage(exception.getBindingResult());
+        Result<Void> result = Result.error(ErrorCode.BAD_REQUEST.getCode(), message);
 
-        // 正常情况下会有错误信息，这里增加空值判断作为保护
-        String message = fieldError == null
-                ? ErrorCode.BAD_REQUEST.getDefaultMessage() //请求参数不正确
-                : fieldError.getDefaultMessage();
+        return ResponseEntity.status(ErrorCode.BAD_REQUEST.getHttpStatus()).body(result);
+    }
 
-        return Result.error(ErrorCode.BAD_REQUEST.getCode(), message);
+    /**
+     * 处理@ModelAttribute参数校验异常。
+     *
+     * 例如：
+     * page小于1、pageSize超过100。
+     */
+    @ExceptionHandler(BindException.class)
+    public ResponseEntity<Result<Void>> handleBindException(BindException exception) {
+        String message = getValidationMessage(exception.getBindingResult());
+        Result<Void> result = Result.error(ErrorCode.BAD_REQUEST.getCode(), message);
+
+        return ResponseEntity.status(ErrorCode.BAD_REQUEST.getHttpStatus()).body(result);
+    }
+
+    /**
+     * 处理请求体无法读取的异常。
+     *
+     * 例如：
+     * JSON格式错误、字段类型错误、日期格式错误。
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Result<Void>> handleHttpMessageNotReadableException(
+            HttpMessageNotReadableException exception
+    ) {
+        Result<Void> result = Result.error(
+                ErrorCode.BAD_REQUEST.getCode(),
+                ErrorCode.BAD_REQUEST.getDefaultMessage()
+        );
+
+        return ResponseEntity.status(ErrorCode.BAD_REQUEST.getHttpStatus()).body(result);
     }
 
     /**
      * 处理自定义业务异常。
-     * <p>
-     * 例如：用户不存在、密码错误、账号被禁用。
      *
-     * @param exception 捕获到的业务异常
-     * @return 统一错误结果
+     * 例如：
+     * 用户不存在、兑换码已使用、商品已停用。
      */
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<Result<Void>> handleBusinessException(BusinessException exception) {
         ErrorCode errorCode = exception.getErrorCode();
+        Result<Void> result = Result.error(errorCode.getCode(), exception.getMessage());
 
-        Result<Void> result = Result.error(
-                errorCode.getCode(),
-                exception.getMessage()
-        );
-
-        return ResponseEntity
-                .status(errorCode.getHttpStatus())
-                .body(result);
+        return ResponseEntity.status(errorCode.getHttpStatus()).body(result);
     }
 
     /**
      * 处理没有被单独处理的系统异常。
      *
-     * Exception 是大多数普通异常的父类，
-     * 所以这个方法相当于最后一道保护。
-     *
-     * @param exception 捕获到的系统异常
-     * @return 统一错误结果
+     * 完整异常只记录到服务器日志，
+     * 不向前端暴露数据库、代码路径等内部信息。
      */
     @ExceptionHandler(Exception.class)
-    public Result<Void> handleException(Exception exception) {
-        // 将完整异常记录到后端日志中，方便开发人员排查。
-        // 不要把数据库、代码路径等详细报错直接返回给前端。
+    public ResponseEntity<Result<Void>> handleException(Exception exception) {
         log.error("服务器内部异常", exception);
 
-        return Result.error(
-                //服务器内部异常
+        Result<Void> result = Result.error(
                 ErrorCode.INTERNAL_SERVER_ERROR.getCode(),
-                ErrorCode.INTERNAL_SERVER_ERROR.getDefaultMessage());
+                ErrorCode.INTERNAL_SERVER_ERROR.getDefaultMessage()
+        );
+
+        return ResponseEntity.status(ErrorCode.INTERNAL_SERVER_ERROR.getHttpStatus()).body(result);
     }
 
+    /**
+     * 获取参数校验产生的第一条错误信息。
+     */
+    private String getValidationMessage(BindingResult bindingResult) {
+        FieldError fieldError = bindingResult.getFieldError();
+
+        if (fieldError == null || fieldError.getDefaultMessage() == null) {
+            return ErrorCode.BAD_REQUEST.getDefaultMessage();
+        }
+
+        return fieldError.getDefaultMessage();
+    }
 }
