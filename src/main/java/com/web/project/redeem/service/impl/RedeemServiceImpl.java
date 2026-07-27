@@ -55,7 +55,15 @@ public class RedeemServiceImpl implements RedeemService {
     @Override
     @Transactional
     public RedeemResultVO redeem(Long userId, String redeemIp, RedeemCodeDTO redeemDTO) {
-        validateUser(userId);
+        /*
+         * 统一锁顺序：先锁定当前用户账号行。
+         *
+         * 这保证同一个用户的所有兑换请求串行执行，
+         * 从根本上避免 user_subscription 的间隙锁死锁。
+         * 不同用户仍然可以并行兑换。
+         */
+        UserAccount lockedUser = userAccountMapper.selectByIdForUpdate(userId);
+        validateUser(lockedUser);
 
         LocalDateTime now = LocalDateTime.now();
         String codeHash = redeemCodeGenerator.hashCode(redeemDTO.code());
@@ -132,9 +140,7 @@ public class RedeemServiceImpl implements RedeemService {
     /**
      * 检查当前用户是否仍然存在并且状态正常。
      */
-    private void validateUser(Long userId) {
-        UserAccount userAccount = userAccountMapper.selectById(userId);
-
+    private void validateUser(UserAccount userAccount) {
         if (userAccount == null) {
             throw new BusinessException(ErrorCode.LOGIN_STATUS_INVALID);
         }

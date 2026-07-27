@@ -15,6 +15,11 @@ import java.util.List;
 public interface RedeemCodeMapper {
 
     /**
+     * 保存单个兑换码。
+     */
+    int insert(RedeemCode redeemCode);
+
+    /**
      * 批量保存兑换码。
      */
     int batchInsert(@Param("codes") List<RedeemCode> codes);

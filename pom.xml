@@ -69,6 +69,11 @@
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security-test</artifactId>
             <scope>test</scope>
         </dependency>
@@ -99,10 +104,17 @@
             <scope>test</scope>
         </dependency>
 
-        <!--OAuth2 Resource Server：用于解析和验证前端携带的 Bearer JWT-->
+        <!-- OAuth2 Resource Server：用于解析和验证前端携带的 Bearer JWT-->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+        </dependency>
+
+        <!-- HttpClient 5 用于 RestTemplate PATCH 支持 -->
+        <dependency>
+            <groupId>org.apache.httpcomponents.client5</groupId>
+            <artifactId>httpclient5</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 

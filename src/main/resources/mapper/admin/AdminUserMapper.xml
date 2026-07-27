@@ -41,6 +41,26 @@
         </where>
     </sql>
 
+    <!-- 新增管理员 -->
+    <insert id="insert"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT INTO admin_user
+        (
+        username,
+        password,
+        nickname,
+        status
+        )
+        VALUES
+        (
+        #{username},
+        #{password},
+        #{nickname},
+        #{status}
+        )
+    </insert>
+
     <!-- 根据账号查询管理员 -->
     <select id="selectByUsername"
             resultType="com.web.project.admin.entity.AdminUser">
