@@ -8,7 +8,7 @@ import java.time.LocalDateTime;
 /**
  * 后台管理员实体类。
  *
- * 实体类中的属性与 admin_user 数据表字段对应。
+ * 实体类中的属性与 sys_user 数据表字段对应。
  */
 @Getter
 @Setter

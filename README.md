@@ -125,7 +125,7 @@ src/main/resources/
 
 | 表名 | 说明 |
 |------|------|
-| `admin_user` | 后台管理员表 |
+| `sys_user` | 后台系统用户表 |
 | `user_account` | 普通用户账号表 |
 | `product` | 商品表 |
 | `product_plan` | 商品套餐表 |
@@ -135,6 +135,9 @@ src/main/resources/
 | `redeem_record` | 兑换记录表 |
 
 完整的建表 SQL 见项目根目录 `web_project.sql`。
+
+已有数据库从 `admin_user` 迁移到 `sys_user` 时，执行
+`database/migrations/20260824_rename_admin_user_to_sys_user.sql`。
 
 ## API 端点概览
 

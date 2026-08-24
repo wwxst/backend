@@ -46,7 +46,7 @@
             resultType="com.web.project.admin.entity.AdminUser">
         SELECT
         <include refid="AdminUserColumns"/>
-        FROM admin_user
+        FROM sys_user
         WHERE username = #{username}
         LIMIT 1
     </select>
@@ -56,7 +56,7 @@
             resultType="com.web.project.admin.entity.AdminUser">
         SELECT
         <include refid="AdminUserColumns"/>
-        FROM admin_user
+        FROM sys_user
         WHERE id = #{id}
         LIMIT 1
     </select>
@@ -65,7 +65,7 @@
     <select id="countByCondition"
             resultType="long">
         SELECT COUNT(*)
-        FROM admin_user
+        FROM sys_user
         <include refid="AdminUserConditions"/>
     </select>
 
@@ -74,7 +74,7 @@
             resultType="com.web.project.admin.entity.AdminUser">
         SELECT
         <include refid="AdminUserColumns"/>
-        FROM admin_user
+        FROM sys_user
         <include refid="AdminUserConditions"/>
         ORDER BY id DESC
         LIMIT #{offset}, #{pageSize}
