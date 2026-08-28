@@ -136,9 +136,6 @@ src/main/resources/
 
 完整的建表 SQL 见项目根目录 `web_project.sql`。
 
-已有数据库从 `admin_user` 迁移到 `sys_user` 时，执行
-`database/migrations/20260824_rename_admin_user_to_sys_user.sql`。
-
 ## API 端点概览
 
 ### 管理端认证（公开）

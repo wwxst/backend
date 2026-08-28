@@ -26,21 +26,6 @@ class SysUserTableNamingTest {
         assertTrue(mapper.contains("FROM sys_user"));
     }
 
-    @Test
-    void existingDatabaseMigrationRenamesTableAndIndex() throws IOException {
-        Path migrationPath = projectRoot.resolve(
-                "database/migrations/20260824_rename_admin_user_to_sys_user.sql"
-        );
-
-        assertTrue(Files.exists(migrationPath));
-
-        String migration = Files.readString(migrationPath, StandardCharsets.UTF_8);
-        assertTrue(migration.contains("RENAME TABLE admin_user TO sys_user"));
-        assertTrue(migration.contains(
-                "RENAME INDEX uk_admin_user_username TO uk_sys_user_username"
-        ));
-    }
-
     private String read(String relativePath) throws IOException {
         return Files.readString(projectRoot.resolve(relativePath), StandardCharsets.UTF_8);
     }

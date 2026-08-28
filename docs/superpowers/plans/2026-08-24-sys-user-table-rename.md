@@ -4,7 +4,7 @@
 
 **Goal:** Rename the backend system-user table from `admin_user` to `sys_user` without changing Java class names or public API paths, and document the approved two-frontend architecture.
 
-**Architecture:** Keep the existing admin Java module and `/api/admin/**` contract stable. Change the fresh-install schema and every MyBatis query to `sys_user`, and provide an explicit MySQL 8 migration for existing databases.
+**Architecture:** Keep the existing admin Java module and `/api/admin/**` contract stable. This project has no existing database or historical data, so change the schema and every MyBatis query directly to `sys_user` without a compatibility migration.
 
 **Tech Stack:** MySQL 8, MyBatis XML, Spring Boot, JUnit Jupiter, Markdown
 
@@ -23,18 +23,11 @@ assertFalse(schema.contains("admin_user"));
 assertFalse(mapper.contains("admin_user"));
 ```
 
-- [ ] **Step 2: Write the failing existing-database migration test**
-
-```java
-assertTrue(Files.exists(migrationPath));
-assertTrue(migration.contains("RENAME TABLE admin_user TO sys_user"));
-```
-
-- [ ] **Step 3: Run the focused test and verify RED**
+- [ ] **Step 2: Run the focused test and verify RED**
 
 Run: `./mvnw.cmd -Dtest=SysUserTableNamingTest test`
 
-Expected: FAIL because `web_project.sql` and `AdminUserMapper.xml` still reference `admin_user`, and the migration file does not exist.
+Expected: FAIL because `web_project.sql` and `AdminUserMapper.xml` still reference `admin_user`.
 
 ### Task 2: Rename the database table
 
@@ -42,7 +35,6 @@ Expected: FAIL because `web_project.sql` and `AdminUserMapper.xml` still referen
 - Modify: `web_project.sql`
 - Modify: `src/main/resources/mapper/admin/AdminUserMapper.xml`
 - Modify: `src/main/java/com/web/project/admin/entity/AdminUser.java`
-- Create: `database/migrations/20260824_rename_admin_user_to_sys_user.sql`
 - Modify: `README.md`
 
 - [ ] **Step 1: Update the fresh-install schema**
@@ -53,25 +45,17 @@ CREATE TABLE sys_user
 UNIQUE KEY uk_sys_user_username (username)
 ```
 
-- [ ] **Step 2: Add the existing-database migration**
-
-```sql
-RENAME TABLE admin_user TO sys_user;
-ALTER TABLE sys_user
-    RENAME INDEX uk_admin_user_username TO uk_sys_user_username;
-```
-
-- [ ] **Step 3: Point all admin mapper queries at `sys_user`**
+- [ ] **Step 2: Point all admin mapper queries at `sys_user`**
 
 ```xml
 FROM sys_user
 ```
 
-- [ ] **Step 4: Update the entity comment and database documentation**
+- [ ] **Step 3: Update the entity comment and database documentation**
 
 Use `sys_user` for the database table name while retaining the `AdminUser` Java type and existing admin API paths.
 
-- [ ] **Step 5: Run the focused test and verify GREEN**
+- [ ] **Step 4: Run the focused test and verify GREEN**
 
 Run: `./mvnw.cmd -Dtest=SysUserTableNamingTest test`
 
@@ -92,12 +76,12 @@ Expected: BUILD SUCCESS with zero test failures and zero test errors.
 
 Run: `rg -n "admin_user|sys_user" .`
 
-Expected: Runtime schema and mapper references use `sys_user`; `admin_user` appears only in the one-time migration source name and historical implementation plan context.
+Expected: Runtime schema and mapper references use `sys_user`; `admin_user` appears only in assertions that prohibit the old name and historical plan context.
 
 - [ ] **Step 3: Commit intended files**
 
 ```bash
-git add README.md web_project.sql src/main/resources/mapper/admin/AdminUserMapper.xml src/main/java/com/web/project/admin/entity/AdminUser.java src/test/java/com/web/project/admin/SysUserTableNamingTest.java database/migrations/20260824_rename_admin_user_to_sys_user.sql docs/superpowers/specs/2026-08-24-two-frontends-design.md docs/superpowers/plans/2026-08-24-sys-user-table-rename.md
+git add README.md web_project.sql src/main/resources/mapper/admin/AdminUserMapper.xml src/main/java/com/web/project/admin/entity/AdminUser.java src/test/java/com/web/project/admin/SysUserTableNamingTest.java docs/superpowers/specs/2026-08-24-two-frontends-design.md docs/superpowers/plans/2026-08-24-sys-user-table-rename.md
 git commit -m "refactor: rename system user table"
 ```
 
