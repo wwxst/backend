@@ -36,14 +36,6 @@ public record Result<T>(
     }
 
     /**
-     * 请求失败，默认使用 500 状态码
-     */
-    public static <T> Result<T> error(String msg) {
-
-        return new Result<>(500, msg, null);
-    }
-
-    /**
      * 请求失败，并允许自定义状态码
      */
     public static <T> Result<T> error(int code, String msg) {

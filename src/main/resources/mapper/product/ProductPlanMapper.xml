@@ -15,7 +15,6 @@
         duration_days,
         price,
         support_redeem,
-        support_payment,
         status,
         sort,
         created_at,
@@ -54,7 +53,6 @@
         duration_days,
         price,
         support_redeem,
-        support_payment,
         status,
         sort
         )
@@ -66,7 +64,6 @@
         #{durationDays},
         #{price},
         #{supportRedeem},
-        #{supportPayment},
         #{status},
         #{sort}
         )

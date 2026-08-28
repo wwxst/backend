@@ -60,14 +60,6 @@ public class ProductPlan {
     private Boolean supportRedeem;
 
     /**
-     * 是否支持在线支付。
-     *
-     * 当前暂时为 false，
-     * 后续开发订单支付后可以改为 true。
-     */
-    private Boolean supportPayment;
-
-    /**
      * 套餐状态：
      * 0 表示停用；
      * 1 表示启用。

@@ -19,7 +19,6 @@ import java.math.BigDecimal;
  * @param durationDays    有效天数
  * @param price           套餐价格
  * @param supportRedeem   是否支持兑换码
- * @param supportPayment  是否支持在线支付
  * @param sort            排序值
  */
 public record CreateProductPlanDTO(
@@ -56,9 +55,6 @@ public record CreateProductPlanDTO(
 
         @NotNull(message = "请选择是否支持兑换码")
         Boolean supportRedeem,
-
-        @NotNull(message = "请选择是否支持在线支付")
-        Boolean supportPayment,
 
         @Min(value = 0, message = "排序值不能小于0")
         Integer sort

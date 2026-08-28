@@ -13,7 +13,6 @@ import java.time.LocalDateTime;
  * @param durationDays     有效天数
  * @param price            套餐价格
  * @param supportRedeem    是否支持兑换码
- * @param supportPayment   是否支持在线支付
  * @param status           套餐状态
  * @param statusName       套餐状态名称
  * @param sort             排序值
@@ -28,7 +27,6 @@ public record ProductPlanVO(
         Integer durationDays,
         BigDecimal price,
         Boolean supportRedeem,
-        Boolean supportPayment,
         Integer status,
         String statusName,
         Integer sort,

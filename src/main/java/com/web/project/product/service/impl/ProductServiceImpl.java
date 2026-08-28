@@ -192,14 +192,7 @@ public class ProductServiceImpl implements ProductService {
                 createDTO.price()
         );
 
-        /*
-         * 当前版本只支持兑换码兑换。
-         *
-         * 在线支付字段保留，
-         * 等订单支付模块完成后再开放。
-         */
-        productPlan.setSupportRedeem(true);
-        productPlan.setSupportPayment(false);
+        productPlan.setSupportRedeem(createDTO.supportRedeem());
 
         productPlan.setStatus(
                 ProductStatus.ENABLED.getCode()
@@ -299,7 +292,6 @@ public class ProductServiceImpl implements ProductService {
                 productPlan.getDurationDays(),
                 productPlan.getPrice(),
                 productPlan.getSupportRedeem(),
-                productPlan.getSupportPayment(),
                 productPlan.getStatus(),
                 ProductStatus.descriptionOf(
                         productPlan.getStatus()

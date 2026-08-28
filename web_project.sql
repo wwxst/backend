@@ -69,7 +69,6 @@ CREATE TABLE product_plan
     price         DECIMAL(10, 2)  NOT NULL COMMENT '销售价格',
 
     support_redeem  TINYINT       NOT NULL DEFAULT 1 COMMENT '是否支持兑换码：0否，1是',
-    support_payment TINYINT       NOT NULL DEFAULT 0 COMMENT '是否支持在线支付：0否，1是',
 
     status        TINYINT         NOT NULL DEFAULT 1 COMMENT '状态：0停用，1启用',
     sort          INT             NOT NULL DEFAULT 0 COMMENT '排序值',
