@@ -1,7 +1,8 @@
 package com.web.project;
 import org.junit.jupiter.api.Test;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import com.web.project.config.PasswordEncoderConfig;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 密码加密测试。
@@ -9,13 +10,15 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 class PasswordEncoderTest {
 
     @Test
-    void encodePassword() {
+    void encodedPasswordAcceptsOriginalAndRejectsWrongPassword() {
         PasswordEncoder passwordEncoder =
-                new BCryptPasswordEncoder();
+                new PasswordEncoderConfig().passwordEncoder();
 
         String encodedPassword =
                 passwordEncoder.encode("user12345678");
 
-        System.out.println(encodedPassword);
+        assertNotEquals("user12345678", encodedPassword);
+        assertTrue(passwordEncoder.matches("user12345678", encodedPassword));
+        assertFalse(passwordEncoder.matches("wrong-password", encodedPassword));
     }
 }

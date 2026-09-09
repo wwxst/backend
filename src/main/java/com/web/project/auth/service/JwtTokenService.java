@@ -1,6 +1,6 @@
 package com.web.project.auth.service;
 
-import com.web.project.admin.entity.AdminUser;
+import com.web.project.admin.entity.SysUser;
 import com.web.project.config.properties.JwtProperties;
 import com.web.project.user.entity.UserAccount;
 import lombok.RequiredArgsConstructor;
@@ -26,13 +26,13 @@ public class JwtTokenService {
     /**
      * 为管理员生成 Access Token。
      *
-     * @param adminUser 已通过身份验证的管理员
+     * @param sysUser 已通过身份验证的管理员
      * @return JWT 字符串
      */
-    public String createAdminAccessToken(AdminUser adminUser) {
+    public String createSysUserAccessToken(SysUser sysUser) {
         return createAccessToken(
-                adminUser.getId(),
-                adminUser.getUsername(),
+                sysUser.getId(),
+                sysUser.getUsername(),
                 "ADMIN",
                 "admin"
         );

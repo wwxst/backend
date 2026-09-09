@@ -24,8 +24,8 @@ app:
     # Token 签发者，用于确认 Token 是不是本项目签发的
     issuer: web-project
 
-    # 使用环境变量或配置文件提供密钥
-    secret: ${JWT_SECRET:GnUfr73ua0jeNyfe9sZAGbpJT9cQiTdZuoCmIpKzDRk=}
+    # 本地开发默认值；部署环境通过 JWT_SECRET 覆盖
+    secret: ${JWT_SECRET:YXRsYXMtYmFja2VuZC1sb2NhbC1kZXYta3ktMjAyNi0wOS0wOQ==}
 
     # Access Token 有效期，2h 表示两小时
-    access-token-expiration: 2h
+    access-token-expiration: 24h

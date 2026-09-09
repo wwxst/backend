@@ -47,7 +47,7 @@ public class SecurityConfig {
                         // 管理员登录接口公开访问
                         .requestMatchers(
                                 HttpMethod.POST,
-                                "/api/admin/auth/login"
+                                "/api/sys-user/auth/login"
                         )
                         .permitAll()
 
@@ -59,7 +59,7 @@ public class SecurityConfig {
                         .permitAll()
 
                         // 所有管理端接口必须拥有 admin 权限
-                        .requestMatchers("/api/admin/**")
+                        .requestMatchers("/api/sys-user/**")
                         .hasAuthority("SCOPE_admin")
 
                         // 所有普通用户端接口必须拥有 user 权限

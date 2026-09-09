@@ -25,13 +25,6 @@ public interface UserAccountMapper {
     );
 
     /**
-     * 根据用户ID查询用户并锁定当前行。
-     *
-     * 只能在事务中调用。
-     */
-    UserAccount selectByIdForUpdate(@Param("id") Long id);
-
-    /**
      * 查询符合条件的用户总数。
      *
      * @param keyword 用户名或昵称关键词

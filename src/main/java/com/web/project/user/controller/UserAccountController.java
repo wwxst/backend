@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 但接口路径属于管理端，只允许管理员访问。
  */
 @RestController
-@RequestMapping("/api/admin/users")
+@RequestMapping("/api/sys-user/users")
 @RequiredArgsConstructor
 public class UserAccountController {
 
@@ -29,7 +29,7 @@ public class UserAccountController {
      * 分页查询普通用户列表。
      *
      * 请求示例：
-     * GET /api/admin/users?page=1&pageSize=10
+     * GET /api/sys-user/users?page=1&pageSize=10
      */
     @GetMapping
     public Result<PageResult<UserAccountListVO>> getUserPage(

@@ -1,222 +1,57 @@
-# Web Project Backend
+# 账号后端
 
-基于 Spring Boot 的后端服务，提供完整的用户认证、商品管理、兑换码体系等功能。
+基于 Spring Boot、Spring Security、MyBatis 和 MySQL，仅提供系统用户与普通用户的现有账号功能。
 
-## 技术栈
+## 当前功能
 
-- **框架**：Spring Boot 4.0.7
-- **安全**：Spring Security + Spring OAuth2 Resource Server + JWT Token 认证
-- **ORM**：MyBatis 4.0.1
-- **数据库**：MySQL
-- **工具**：Lombok、Spring Validation、JUnit Jupiter
+- 两类账号分别登录、查询当前登录信息。
+- 系统用户分页查询系统用户和普通用户列表，可按关键词、状态筛选。
+- BCrypt 密码验证、JWT 认证及 `SCOPE_admin` / `SCOPE_user` 权限隔离。
 
-## 功能特性
+当前没有注册、账号创建、编辑或启停用接口。登录和当前账号查询会检查已有账号状态。前端退出登录时清除 Token，后端没有退出登录接口。
 
-### 认证授权
-- 管理员认证（登录、获取当前管理员信息）
-- 普通用户认证（登录、获取当前用户信息）
-- 基于 JWT Bearer Token 的无状态认证机制
-- 双角色权限隔离：`SCOPE_admin`（管理端）与 `SCOPE_user`（用户端）
-- 统一的 401/403 异常处理
+## 接口
 
-### 管理员管理
-- 管理员账号的 CRUD 及状态管理（启用/禁用）
+完整请求、响应、参数和错误码说明见[接口文档](docs/api.md)。
 
-### 普通用户管理
-- 用户账号管理（昵称、状态等）
+| 方法 | 路径 | 权限 | 功能 |
+|------|------|------|------|
+| POST | `/api/sys-user/auth/login` | 公开 | 系统用户登录 |
+| GET | `/api/sys-user/auth/me` | `SCOPE_admin` | 当前系统用户 |
+| GET | `/api/sys-user/sys-users` | `SCOPE_admin` | 系统用户列表 |
+| GET | `/api/sys-user/users` | `SCOPE_admin` | 普通用户列表 |
+| POST | `/api/user/auth/login` | 公开 | 普通用户登录 |
+| GET | `/api/user/auth/me` | `SCOPE_user` | 当前普通用户 |
 
-### 商品与套餐
-- 商品管理（商品编码、名称、描述、状态）
-- 套餐管理（套餐编码、名称、有效天数、价格、排序）
-- 套餐支持兑换码和在线支付开关控制
+登录请求为 `{"username":"账号","password":"密码"}`；列表查询参数为 `page`、`pageSize`、`keyword`、`status`。响应统一为 `Result<T>`，分页数据为 `PageResult<T>`。
 
-### 兑换码体系
-- 兑换码批次生成（批次编号、数量、销售渠道、过期时间）
-- 兑换码批次管理（分页查询、启用/停用）
-- 兑换码安全管理（SHA-256 哈希存储，后台展示脱敏处理）
-- 批次级联状态控制（批次停用 → 所有下级兑换码不可用）
-- 兑换码状态流转：未兑换 → 已兑换 / 已停用
-- 兑换记录追踪（兑换码、用户、IP、时间、套餐快照）
-- 兑换记录分页查询（支持按兑换码、用户ID等条件筛选）
+## 目录
 
-### 用户订阅
-- 用户订阅记录管理（订阅有效期、状态）
-
-## 项目结构
-
-```
+```text
 src/main/java/com/web/project/
-├── admin/                    # 管理员模块
-│   ├── controller/           # AdminUserController
-│   ├── dto/                  # AdminUserQueryDTO
-│   ├── entity/               # AdminUser
-│   ├── mapper/               # AdminUserMapper
-│   ├── service/              # AdminUserService / impl
-│   └── vo/                   # AdminUserListVO
-│
-├── auth/                     # 认证授权模块
-│   ├── controller/           # AdminAuthController, UserAuthController
-│   ├── dto/                  # LoginDTO, UserLoginDTO
-│   ├── service/              # AdminAuthService, UserAuthService, JwtTokenService
-│   └── vo/                   # AdminInfoVO, AdminLoginVO, UserLoginVO
-│
-├── common/                   # 公共组件
-│   ├── enums/                # 枚举类
-│   ├── error/                # ErrorCode（错误码定义）
-│   ├── exception/            # BusinessException, GlobalExceptionHandler
-│   ├── result/               # Result（统一响应）, PageResult（分页响应）
-│   └── utils/                # 工具类
-│
-├── config/                   # 配置类
-│   ├── properties/           # JwtProperties
-│   ├── security/             # RestAccessDeniedHandler, RestAuthenticationEntryPoint
-│   ├── JwtConfig.java
-│   ├── PasswordEncoderConfig.java
-│   └── SecurityConfig.java
-│
-├── product/                  # 商品与套餐模块
-│   ├── controller/           # ProductController
-│   ├── dto/                  # CreateProductDTO, CreateProductPlanDTO, ProductQueryDTO
-│   ├── entity/               # Product, ProductPlan
-│   ├── enums/                # ProductStatus
-│   ├── mapper/               # ProductMapper, ProductPlanMapper
-│   ├── service/              # ProductService / impl
-│   └── vo/                   # ProductDetailVO, ProductListVO, ProductPlanVO
-│
-├── redeem/                   # 兑换码模块
-│   ├── controller/           # RedeemCodeBatchController, RedeemRecordController, RedeemController
-│   ├── dto/                  # CreateRedeemCodeBatchDTO, RedeemCodeBatchQueryDTO, RedeemCodeQueryDTO, RedeemRecordQueryDTO, UpdateRedeemCodeBatchStatusDTO, RedeemCodeDTO
-│   ├── entity/               # RedeemCode, RedeemCodeBatch, RedeemRecord
-│   ├── enums/                # RedeemBatchStatus, RedeemCodeStatus
-│   ├── mapper/               # RedeemCodeBatchMapper, RedeemCodeMapper, RedeemRecordMapper
-│   │   └── model/            # RedeemCodeBatchListRow, RedeemCodeListRow, RedeemRecordListRow
-│   ├── service/              # RedeemCodeBatchService, RedeemService, RedeemRecordService / impl
-│   ├── support/              # 兑换码生成辅助
-│   └── vo/                   # RedeemCodeBatchCreateVO, RedeemCodeBatchListVO, RedeemCodeListVO, RedeemRecordListVO, RedeemResultVO
-│
-├── subscription/             # 用户订阅模块
-│   ├── controller/           # UserSubscriptionController
-│   ├── entity/               # UserSubscription
-│   ├── enums/                # SubscriptionStatus 等
-│   ├── mapper/               # UserSubscriptionMapper
-│   ├── service/              # UserSubscriptionService / impl
-│   └── vo/                   # UserSubscriptionVO
-│
-├── user/                     # 普通用户模块
-│   ├── controller/           # UserAccountController
-│   ├── dto/                  # UserAccountQueryDTO
-│   ├── entity/               # UserAccount
-│   ├── mapper/               # UserAccountMapper
-│   ├── service/              # UserAccountService / impl
-│   └── vo/                   # UserAccountListVO, UserInfoVO
+├── admin/       系统用户列表、实体与 Mapper
+├── user/        普通用户列表、实体与 Mapper
+├── auth/        两类账号的登录、当前身份与 JWT 签发
+├── common/      错误与响应结构
+├── config/      认证、安全与配置
 └── WebProjectApplication.java
-
-src/main/resources/
-├── mapper/                   # MyBatis XML 映射文件
-│   ├── admin/                # AdminUserMapper.xml
-│   ├── product/              # ProductMapper.xml, ProductPlanMapper.xml
-│   ├── redeem/               # RedeemCodeBatchMapper.xml, RedeemCodeMapper.xml, RedeemRecordMapper.xml
-│   ├── subscription/         # UserSubscriptionMapper.xml
-│   └── user/                 # UserAccountMapper.xml
-└── application.yml           # 应用配置
+src/main/resources/mapper/
+├── admin/
+└── user/
 ```
 
-## 数据库表
+## 启动
 
-| 表名 | 说明 |
-|------|------|
-| `sys_user` | 后台系统用户表 |
-| `user_account` | 普通用户账号表 |
-| `product` | 商品表 |
-| `product_plan` | 商品套餐表 |
-| `user_subscription` | 用户订阅表 |
-| `redeem_code_batch` | 兑换码批次表 |
-| `redeem_code` | 兑换码表（存储 SHA-256 哈希） |
-| `redeem_record` | 兑换记录表 |
+1. 使用 IntelliJ IDEA 为项目配置的 JDK，具体步骤见[后端工程规范](docs/engineering.md)。
+2. 新环境执行 `web_project.sql`，创建 `sys_user` 和 `user_account` 两张账号表，并写入本地开发账号 `admin`，密码为 `123456`。已有数据库可执行 `database/migrations/20260910_seed_default_sys_user.sql` 重置该账号；密码列始终存储 BCrypt 哈希。
+3. 本地开发可以直接启动，`src/main/resources/application.yml` 已提供本地 JWT 默认密钥；数据库连接可通过 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD` 指定。需要替换密钥时，在 IDEA 启动配置或 Maven Runner 中设置 `JWT_SECRET`。
+4. 运行 `WebProjectApplication`，或在 Maven 面板执行 `spring-boot:run`。默认地址为 `http://localhost:8080`。
 
-完整的建表 SQL 见项目根目录 `web_project.sql`。
+密钥生成方法及构建验证命令见[后端工程规范](docs/engineering.md)。
 
-已有数据库从 `admin_user` 迁移到 `sys_user` 时，执行
-`database/migrations/20260824_rename_admin_user_to_sys_user.sql`。
+## 已有数据库
 
-## API 端点概览
+- 使用旧 `admin_user` 表的环境，先执行 `database/migrations/20260824_rename_admin_user_to_sys_user.sql`。
+- 删除旧业务表使用 `database/migrations/20260909_remove_non_account_tables.sql`。该脚本会永久删除六张旧业务表及数据，执行前备份并确认目标数据库；脚本保留两类账号表。
 
-### 管理端认证（公开）
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/admin/auth/login` | 管理员登录 |
-
-### 管理端接口（需 SCOPE_admin）
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/admin/auth/me` | 获取当前管理员信息 |
-| GET | `/api/admin/admin-users` | 管理员账号列表（分页） |
-| GET | `/api/admin/users` | 普通用户列表（分页） |
-| POST | `/api/admin/products` | 创建商品 |
-| GET | `/api/admin/products` | 商品列表（分页） |
-| POST | `/api/admin/products/{productId}/plans` | 为指定商品创建套餐 |
-| GET | `/api/admin/products/{productId}/plans` | 查询指定商品下的套餐 |
-| POST | `/api/admin/redeem-code-batches` | 创建兑换码批次 |
-| GET | `/api/admin/redeem-code-batches` | 兑换码批次列表（分页） |
-| PATCH | `/api/admin/redeem-code-batches/{batchId}/status` | 启用/停用兑换码批次 |
-| GET | `/api/admin/redeem-code-batches/{batchId}/codes` | 查询批次下的兑换码（分页） |
-| GET | `/api/admin/redeem-records` | 兑换记录列表（分页） |
-
-### 用户端认证（公开）
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/user/auth/login` | 用户登录 |
-
-### 用户端接口（需 SCOPE_user）
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/user/auth/me` | 获取当前用户信息 |
-| POST | `/api/user/redemptions` | 使用兑换码兑换 |
-| GET | `/api/user/subscription` | 获取当前用户订阅状态 |
-
-## 环境要求
-
-- **Java** 25+
-- **Maven** 3.6+
-- **MySQL** 8.0+
-
-## 快速开始
-
-### 1. 创建数据库
-
-执行项目根目录下的 SQL 脚本：
-
-```bash
-mysql -u root -p < web_project.sql
-```
-
-### 2. 配置环境变量（可选）
-
-| 变量名 | 说明 | 默认值 |
-|--------|------|--------|
-| `DB_URL` | 数据库连接地址 | `jdbc:mysql://localhost:3306/web_project?...` |
-| `DB_USERNAME` | 数据库用户名 | `root` |
-| `DB_PASSWORD` | 数据库密码 | `123456` |
-| `JWT_SECRET` | JWT 签名密钥（Base64） | 内置默认值 |
-
-### 3. 启动应用
-
-```bash
-mvnw clean spring-boot:run
-```
-
-应用启动后访问 `http://localhost:8080`。
-
-> **注意**：首次启动前需确保数据库中已有管理员账号（密码通过 BCrypt 加密），否则无法登录管理端。
-
-## 安全说明
-
-- 前后端分离架构，关闭了 CSRF、Session、Form Login
-- JWT 无状态认证，Access Token 有效期 2 小时
-- 兑换码明文不落库，仅存储 SHA-256 哈希值
-- 管理员密码使用 BCrypt 加密存储
-- 接口按 `SCOPE_admin` / `SCOPE_user` 进行角色隔离
+迁移脚本由维护者手动执行，应用启动不会自动执行。

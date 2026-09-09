@@ -28,6 +28,9 @@ public class JwtConfig {
      */
     @Bean
     public SecretKey jwtSecretKey(JwtProperties jwtProperties) {
+        if (jwtProperties.secret() == null || jwtProperties.secret().isBlank()) {
+            throw new IllegalStateException("必须配置 app.jwt.secret（JWT_SECRET）");
+        }
         byte[] secretBytes;
         try {
             // 将 Base64 字符串还原成原始字节

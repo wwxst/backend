@@ -11,6 +11,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.ErrorResponse;
 
 /**
  * 全局异常处理器。
@@ -26,7 +27,7 @@ public class GlobalExceptionHandler {
      * 处理@RequestBody参数校验异常。
      *
      * 例如：
-     * 账号为空、密码长度不足、兑换码为空。
+     * 账号为空、密码长度不足。
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Result<Void>> handleMethodArgumentNotValidException(
@@ -59,8 +60,8 @@ public class GlobalExceptionHandler {
      * JSON格式错误、字段类型错误、日期格式错误。
      */
     @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<Result<Void>> handleHttpMessageNotReadableException(
-            HttpMessageNotReadableException exception
+    public ResponseEntity<Result<Void>> handleInvalidRequest(
+            Exception exception
     ) {
         Result<Void> result = Result.error(
                 ErrorCode.BAD_REQUEST.getCode(),
@@ -74,7 +75,7 @@ public class GlobalExceptionHandler {
      * 处理自定义业务异常。
      *
      * 例如：
-     * 用户不存在、兑换码已使用、商品已停用。
+     * 登录凭据错误、账号已停用。
      */
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<Result<Void>> handleBusinessException(BusinessException exception) {
@@ -92,6 +93,15 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Result<Void>> handleException(Exception exception) {
+        // 保留 MVC 客户端错误的 HTTP 语义，包括 405 的 Allow 响应头。
+        if (exception instanceof ErrorResponse errorResponse
+                && errorResponse.getStatusCode().is4xxClientError()) {
+            return ResponseEntity.status(errorResponse.getStatusCode())
+                    .headers(errorResponse.getHeaders())
+                    .body(Result.error(ErrorCode.BAD_REQUEST.getCode(),
+                            ErrorCode.BAD_REQUEST.getDefaultMessage()));
+        }
+
         log.error("服务器内部异常", exception);
 
         Result<Void> result = Result.error(

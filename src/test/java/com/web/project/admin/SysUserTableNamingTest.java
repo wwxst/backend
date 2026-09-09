@@ -17,7 +17,7 @@ class SysUserTableNamingTest {
     @Test
     void freshSchemaAndMapperUseSysUserTableName() throws IOException {
         String schema = read("web_project.sql");
-        String mapper = read("src/main/resources/mapper/admin/AdminUserMapper.xml");
+        String mapper = read("src/main/resources/mapper/admin/SysUserMapper.xml");
 
         assertTrue(schema.contains("CREATE TABLE sys_user"));
         assertTrue(schema.contains("uk_sys_user_username"));

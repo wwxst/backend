@@ -24,57 +24,11 @@ public enum ErrorCode {
     //当前用户没有目标接口的访问权限。
     ACCESS_DENIED(40301, HttpStatus.FORBIDDEN, "auth.access_denied", "没有权限访问该接口"),
 
-    //管理员账号被禁用。
-    ADMIN_DISABLED(40302, HttpStatus.FORBIDDEN, "admin.disabled", "当前账号已被禁用"),
+    //系统用户账号被禁用。
+    SYS_USER_DISABLED(40302, HttpStatus.FORBIDDEN, "sys_user.disabled", "当前账号已被禁用"),
 
     //普通用户账号被禁用。
     USER_DISABLED(40303, HttpStatus.FORBIDDEN, "user.disabled", "当前用户账号已被禁用"),
-
-    /**
-     * 商品错误状态码
-     */
-    //商品不存在。
-    PRODUCT_NOT_FOUND(40401, HttpStatus.NOT_FOUND, "product.not_found", "商品不存在"),
-
-    //商品套餐不存在。
-    PRODUCT_PLAN_NOT_FOUND(40402, HttpStatus.NOT_FOUND, "product.plan_not_found", "商品套餐不存在"),
-
-    //商品编码重复。
-    PRODUCT_CODE_EXISTS(40901, HttpStatus.CONFLICT, "product.code_exists", "商品编码已存在"),
-
-    //套餐编码重复。
-    PRODUCT_PLAN_CODE_EXISTS(40902, HttpStatus.CONFLICT, "product.plan_code_exists", "套餐编码已存在"),
-
-    //商品已停用。
-    PRODUCT_DISABLED(40903, HttpStatus.CONFLICT, "product.disabled", "商品已停用"),
-
-    //商品套餐已停用。
-    PRODUCT_PLAN_DISABLED(40904, HttpStatus.CONFLICT, "product.plan_disabled", "商品套餐已停用"),
-
-    //当前套餐不支持兑换码。
-    PRODUCT_PLAN_REDEEM_NOT_SUPPORTED(40905, HttpStatus.CONFLICT, "product.plan_redeem_not_supported", "当前套餐不支持兑换码兑换"),
-
-    //兑换码格式不正确。
-    REDEEM_CODE_INVALID(40010, HttpStatus.BAD_REQUEST, "redeem.code_invalid", "兑换码格式不正确"),
-
-    //兑换码不存在。
-    REDEEM_CODE_NOT_FOUND(40410, HttpStatus.NOT_FOUND, "redeem.code_not_found", "兑换码不存在"),
-
-    // 兑换码批次不存在。
-    REDEEM_BATCH_NOT_FOUND(40411, HttpStatus.NOT_FOUND, "redeem.batch_not_found", "兑换码批次不存在"),
-
-    //兑换码已经被使用。
-    REDEEM_CODE_ALREADY_USED(40910, HttpStatus.CONFLICT, "redeem.code_already_used", "兑换码已被使用"),
-
-    //兑换码已经过期。
-    REDEEM_CODE_EXPIRED(40911, HttpStatus.CONFLICT, "redeem.code_expired", "兑换码已过期"),
-
-    //兑换码已被停用。
-    REDEEM_CODE_DISABLED(40912, HttpStatus.CONFLICT, "redeem.code_disabled", "兑换码已被停用"),
-
-    //兑换码所属批次已被停用。
-    REDEEM_BATCH_DISABLED(40913, HttpStatus.CONFLICT, "redeem.batch_disabled", "兑换码所属批次已被停用"),
-
 
     /**
      * 服务器内部未知异常。
