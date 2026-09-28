@@ -1,6 +1,6 @@
 # 普通用户认证体系重构方案
 
-> 状态：**待验收（已按 2026-09-28 下午最新确认修订）**。本方案经确认后才会开始编码。
+> 状态：**已确认（已按 2026-09-28 评审结论修订）**。方案可进入编码阶段；本文档仍是目标设计，不代表接口已经实现。
 > 涉及表结构变更、认证授权、接口新增与文档重写，属较大范围改动。
 >
 > 本次修订要点：
@@ -12,8 +12,14 @@
 > - 渠道开关**只迁移存储位置，不增加业务粒度**，仍为原来的两级开关语义（见 4.3）。
 > - **Refresh 采用标准双 Token 模式**（访问令牌 + 刷新令牌），rotation 轮换、退出登录吊销**当前会话**、**多会话并存**（Web / App / 多浏览器各自独立 sessionId，新登录不覆盖已有会话），见 5.6。
 > - 已确认：防刷每日上限 **10 条/天**（自然日）；注册时 `password` **可选**（见 8）。
+> - 联系方式在进入数据库查询、写入和 Redis key 前必须统一规范化，防止同一目标以不同文本形式绕过唯一性与防刷限制（见 2.5）。
+> - 验证码发送资格通过 Redis Lua 原子占用；渠道总开关更新通过 MySQL 行锁串行化（见 4.2.1、4.3.3）。
+> - 换绑采用「旧身份验证码 → 短期 `rebindTicket` → 新联系方式验证码」两阶段流程（见 5.5）。
+> - 重置或修改密码成功后吊销该用户全部 Refresh 会话（见 5.5）。
+> - Access Token 与 Refresh Token 使用独立校验入口；退出登录只根据 Access Token 中的 `userId + sessionId` 吊销当前会话（见 5.6）。
+> - 本轮补齐验证码发送版本、密码并发版本、Refresh 复用检测、输入边界、号码解析依赖及换绑 Ticket 错误码（见 2.6、4.2.1、5.6、6）。
 >
-> **状态：待确认事项已全部清零**，可进入编码阶段。
+> **状态：第 8 节事项已全部确认**，可进入编码阶段。
 
 ## 1. 背景与目标
 
@@ -75,6 +81,33 @@
 
 底层逻辑、验证码场景值、数据表字段完全共用。
 
+### 2.5 联系方式规范化
+
+所有手机号、邮箱在参与格式校验、数据库查询或写入、唯一性判断、Redis key 拼接之前，必须先由统一的 `ContactNormalizer` 转成规范值。Controller、Service、Mapper 和 Redis Store 不得各自实现不同规则，也不得使用原始输入拼接 Redis key。
+
+- 手机号：去除展示用空格和连字符，结合产品默认地区解析后统一保存为 E.164 格式，例如 `+8613800138000`。
+- 邮箱：去除首尾空格，按本产品账号规则将完整地址转为小写；数据库唯一索引、查询和 Redis key 均使用该规范值。
+- 日志与错误响应不得回显完整联系方式；需要记录时使用脱敏值。
+
+规范化必须发生在所有业务判断之前，因此 `User@example.com`、`user@example.com` 和带首尾空格的输入会命中同一账号、同一个验证码 key、同一发送锁与同一每日计数。
+
+### 2.6 请求字段约束
+
+所有约束在 Controller DTO 的 HTTP 边界一次完成；Service 只接收已经通过边界校验的值。具体约束如下：
+
+| 字段 | 约束 |
+|------|------|
+| `target` | 原始输入去首尾空格后，手机号最多 32 个字符，邮箱最多 100 个字符；规范化失败返回 `40000` |
+| `targetType` | 只允许 `PHONE` / `EMAIL` |
+| `scene` | 只允许 `REGISTER` / `LOGIN` / `RESET_PASSWORD` / `REBIND_OLD` / `REBIND_NEW` |
+| `code` / `oldCode` / `newCode` | 必须是 6 位 ASCII 数字 |
+| `password` / `newPassword` | 注册时可空；有值时 8~72 个 Unicode 字符，且 UTF-8 编码不超过 72 字节，以匹配 BCrypt 输入上限 |
+| `nickname` | 最多 50 个 Unicode 字符 |
+| `avatar` | 最多 255 个字符，必须是合法 URL 或明确允许的空值 |
+| `rebindTicket` | 非空，最多 128 个 ASCII 字符 |
+
+手机号规范化使用成熟号码解析库（`libphonenumber`），默认地区通过 `app.auth.default-region` 配置，当前默认 `CN`；不能解析或不是有效号码时返回 `40000`，不得用正则自行拼接国家码。该依赖必须在 `pom.xml` 中显式声明并锁定版本。
+
 ## 3. 关键约束（必须遵守）
 
 以下为需求中的硬性约束，实现时不得违反：
@@ -86,6 +119,8 @@
 5. 后端只实现一套重置密码逻辑，不因前端入口不同而拆分业务。
 6. **`user_no` 不参与登录**。登录标识只有 `phone` / `email` 两种，`user_no` 仅对外展示。
 7. **不写死 6 位**。`user_no` 的列宽、生成逻辑、特殊号规则都必须支持将来扩展到 10 / 12 / 16 位，扩展时不需要改表结构。
+8. **联系方式先规范化再使用**。数据库、唯一索引、账号查询和 Redis key 必须使用同一个规范值。
+9. **密码变化后吊销会话**。忘记密码重置或登录态修改密码成功后，必须吊销该用户全部 Refresh 会话；本轮统一要求用户重新登录。
 
 ## 4. 数据库设计
 
@@ -102,6 +137,7 @@
 | `nickname` | VARCHAR(50) | NULL | 用户昵称 |
 | `avatar` | VARCHAR(255) | NULL | 头像地址 |
 | `password` | VARCHAR(100) | NULL | BCrypt 密文；纯验证码注册的用户为空 |
+| `password_version` | BIGINT UNSIGNED | NOT NULL DEFAULT 0 | 密码变更版本；注册初始化为 `0`，每次重置或修改密码成功时递增 |
 | `status` | TINYINT | NOT NULL DEFAULT 1 | 0 禁用，1 正常 |
 | `created_at` | DATETIME | NOT NULL | 创建时间 |
 | `updated_at` | DATETIME | NOT NULL | 更新时间 |
@@ -141,12 +177,12 @@ KEY idx_user_account_status (status)
 4. `XXXX` 由随机数生成，取值 `0000~9999`。
 5. 生成时**直接过滤特殊号码**，**不单独建靓号表**。
 6. 特殊号码的判定规则**集中放在代码配置中**（见 4.1.2），方便后续增删；**不写死在数据库**，数据库只保留 `user_no` 的唯一索引。
-7. 最终 `user_no` 必须有**唯一索引**兜底；若插入时发生唯一冲突，**重新生成后 4 位再尝试**。
+7. 最终 `user_no` 必须有**唯一索引**兜底；只有命中 `uk_user_account_user_no` 时才重新生成后 4 位再尝试，手机号或邮箱唯一键冲突必须直接转换为对应业务错误。
 
 **校验与冲突处理（与 `docs/engineering.md`「唯一性交给数据库约束」一致）**：
 
 - 唯一性**不靠先查后插**，靠 `uk_user_account_user_no` 兜底。
-- 插入捕获唯一键冲突后，重新生成 `XXXX` 并重试；重试次数设上限（建议 5 次），超出则抛出服务端异常，**不得静默失败或返回重复号码**。
+- 插入捕获唯一键冲突后，必须先按数据库约束名分类：命中 `uk_user_account_user_no` 才重新生成 `XXXX` 并重试；命中 `uk_user_account_phone` 或 `uk_user_account_email` 时分别转换为 `TARGET_ALREADY_REGISTERED`，不得重新生成 `user_no` 掩盖联系方式并发冲突。`user_no` 重试次数设上限（建议 5 次），超出则抛出服务端异常，**不得静默失败或返回重复号码**。
 - 过滤特殊号码只是**降低重试概率**，不是唯一性保证手段。
 
 > 扩展说明：`PP` 位数、随机位数由配置决定（当前 `2 + 4`）。将来要 10 / 12 / 16 位时，只需调整配置中的随机位数与特殊号规则，`VARCHAR(32)` 足够容纳，生成逻辑无需重写。
@@ -203,34 +239,40 @@ app:
 
 ### 4.2 Redis 存储设计
 
-Redis 在本方案中承担**两块**职责：
+Redis 在本方案中承担**三块**职责：
 
 1. **验证码**：存储 + 防刷（本节 4.2.1 ~ 4.2.3）
 2. **Refresh Token 会话状态**：会话存储 + 吊销（见 5.6.2）
+3. **换绑临时凭证**：旧身份验证通过后签发短期 `rebindTicket`（见 5.5）
 
 #### 4.2.0 全部 Redis key 一览
 
-统一使用 `auth:` 命名空间，两块职责互不冲突：
+统一使用 `auth:` 命名空间，三块职责互不冲突：
 
 | 类别 | 用途 | key | TTL |
 |------|------|-----|-----|
-| 验证码 | 验证码 | `auth:code:{scene}:{targetType}:{target}` | 5 分钟 |
-| 验证码 | 60 秒发送锁 | `auth:code:send-lock:{scene}:{targetType}:{target}` | 60 秒 |
-| 验证码 | 每日发送次数 | `auth:code:daily:{targetType}:{target}:{yyyyMMdd}` | 到当日结束（见 4.2.2） |
-| 验证码 | 校验失败次数 | `auth:code:fail:{scene}:{targetType}:{target}` | 与验证码同生命周期 |
+| 验证码 | 验证码 | `auth:code:{<targetType>:<target>}:<scene>` | 5 分钟 |
+| 验证码 | 60 秒发送锁 | `auth:code:send-lock:{<targetType>:<target>}:<scene>` | 60 秒 |
+| 验证码 | 每日发送次数 | `auth:code:daily:{<targetType>:<target>}:<yyyyMMdd>` | 到当日结束（见 4.2.2） |
+| 验证码 | 校验失败次数 | `auth:code:fail:{<targetType>:<target>}:<scene>` | 与验证码同生命周期 |
+| 验证码 | 本次发送额度预留 | `auth:code:reservation:{<targetType>:<target>}:<scene>:<sendId>` | 60 秒 |
+| 换绑 | 旧身份验证凭证 | `auth:rebind:{ticketId}` | 5 分钟 |
 | 会话 | 会话主记录（**每个 session 一个独立 key**） | `auth:session:{userId}:{sessionId}` | refreshToken 有效期（默认 30 天） |
 | 会话 | 用户会话索引（**ZSET**，member=`sessionId`，score=会话过期时间戳） | `auth:session:user:{userId}` | 随会话续期刷新 |
 
 > **会话类 key 的 `sessionId`**：每次成功登录生成，同一用户可有多个（Web / App / 多浏览器各一个），**新登录不覆盖已有会话**（见 5.6.5）。
 >
-> **不再使用 `auth:session:revoked:{jti}`**：当前 session 记录中保存的有效 `jti` 本身即可判断旧 Refresh Token 是否失效（见 5.6.3），**本轮不额外维护 revoked key**。
+> **不再使用 `auth:session:revoked:{jti}`**：当前 session 记录中保存的有效 `jti` 与 `passwordVersion` 即可判断旧 Refresh Token 是否失效（见 5.6.3），**本轮不额外维护 revoked key**；检测到 `jti` 复用时直接删除当前 session。
+>
+> **Redis Cluster hash tag**：验证码相关 key 中的 `{<targetType>:<target>}` 是实际 hash tag，例如 `{PHONE:+8613800138000}`。同一目标的验证码、发送锁、每日计数、失败计数和额度预留必须落在同一 slot，才能由 Lua 原子操作。会话 key 同理使用相同的 `{userId}` hash tag。
 
 #### 4.2.1 验证码操作语义
 
-- **发送**：`SET auth:code:... <摘要> EX 300` 写入验证码；同时 `SET auth:code:send-lock:... 1 EX 60` 落发送锁；`INCR auth:code:daily:...` 累加当日计数。
-- **发送前校验**：`send-lock` 存在 → `CODE_SEND_TOO_FREQUENT`；`daily` 计数 ≥ 10 → `CODE_SEND_LIMIT_EXCEEDED`。
+- **统一输入**：先按 2.5 节规范化 `target`，后续业务查询和全部 Redis key 只使用规范值。
+- **原子占用发送资格**：服务端先生成不可预测的 `sendId`，再由一段 Lua 脚本一次完成发送锁检查、每日上限检查、`SET ... NX EX` 发送锁、`INCR` 每日计数、每日计数自然日 TTL、验证码摘要、`sendId` 和本次额度预留 key 写入。验证码记录与发送锁的 value 都必须包含该 `sendId`；脚本任一检查失败时不得修改任何 key，并在成功写入时同步删除旧的 `fail` key，确保每个新验证码重新拥有 5 次失败机会。
+- **发送**：Lua 成功后调用 `CodeSender`。明确的本地失败或发送方明确拒绝时，通过补偿脚本仅在验证码记录和发送锁仍同时属于本次 `sendId` 时删除它们；脚本再原子检查并删除本次额度预留 key，只有预留删除成功才对每日计数执行一次 `DECR`。若任一 value 已变化、key 已过期或结果未知，则不补偿，避免旧请求删除较新的验证码或回退较新的发送额度。补偿脚本必须幂等。
 - **校验成功**：**原子删除**验证码 key（`DEL`），返回删除数量判断是否抢到本次校验，**删除成功即视为使用完成**，天然防止重复使用。同时清理 `fail` 计数。
-- **校验失败**：`INCR auth:code:fail:...`；达到 **5 次**时**立即删除验证码 key**，该验证码作废，用户须重新发送。
+- **校验失败**：通过 Lua 原子执行失败次数递增、TTL 对齐与达到 5 次后的验证码删除，避免并发失败请求越过次数限制。
 - **校验前判断**：验证码 key 不存在 → 视为「错误或已失效」（`VERIFICATION_CODE_INVALID`，已过期也归入此码，不再单独区分过期，因为 Redis 已自动清理）。
 
 > **与原表方案的对比**：原方案用 `used_at IS NULL` 条件更新来判断防重放，Redis 用 `DEL` 的返回数量达到同样效果，且更简洁——不需要 `expires_at`（TTL 自动）、不需要 `used_at`（DEL 即消费）、不需要 `fail_count` 列。
@@ -300,6 +342,10 @@ key 内已带 `{yyyyMMdd}`，即便上一日的 key 因故未及时过期，也�
 
 **不需要** `auth.rebind.require-available-channel` 之类的额外配置项。验证码子开关（`*.code.enabled`）**不参与**这条校验。
 
+该守卫必须在一个 MySQL 事务内执行，并先按固定顺序使用 `SELECT ... FOR UPDATE` 锁定 `auth.phone.enabled`、`auth.email.enabled` 两行，再计算更新后的最终状态并写入目标渠道。不得采用「普通查询后更新」；否则两个并发请求分别关闭 PHONE 与 EMAIL 时可能同时通过检查，最终关闭所有渠道。
+
+若 4 条认证配置缺失或存在重复，更新操作直接失败并记录服务端错误，不得用默认值继续写入。
+
 **4.3.4 配置读取方式**
 
 - **本轮 `sys_config` 直接读 MySQL，不做 Redis 缓存**。渠道开关变更频率低、查询量可控，暂不引入缓存一致性成本；后续出现实际性能需求再加缓存。
@@ -325,7 +371,7 @@ key 内已带 `{yyyyMMdd}`，即便上一日的 key 因故未及时过期，也�
 |------|------|------|------|
 | POST | `/api/user/auth/register` | 匿名 | 用户注册（返回双 Token） |
 | POST | `/api/user/auth/login` | 匿名 | 登录（密码或验证码，由请求体区分；返回双 Token） |
-| POST | `/api/user/auth/send-code` | 匿名 | 发送验证码 |
+| POST | `/api/user/auth/send-code` | 按场景 | 注册/登录/重置允许匿名；`REBIND_OLD` / `REBIND_NEW` 要求 `SCOPE_user` |
 | POST | `/api/user/auth/reset-password` | 匿名 | 重置密码（前端：忘记密码） |
 | POST | `/api/user/auth/refresh` | **匿名** | 用 `refreshToken` 换取新双 Token（见 5.6） |
 | POST | `/api/user/auth/logout` | `SCOPE_user` | 退出登录，**只吊销当前会话**（见 5.6.9） |
@@ -337,6 +383,7 @@ key 内已带 `{yyyyMMdd}`，即便上一日的 key 因故未及时过期，也�
 | GET | `/api/user/me` | `SCOPE_user` | 获取当前用户信息 |
 | PUT | `/api/user/me` | `SCOPE_user` | 修改个人资料（昵称、头像） |
 | PUT | `/api/user/me/password` | `SCOPE_user` | 修改密码（前端：修改密码） |
+| POST | `/api/user/me/rebind-verification` | `SCOPE_user` | 验证旧身份并签发短期 `rebindTicket` |
 | PUT | `/api/user/me/phone` | `SCOPE_user` | 换绑手机号 |
 | PUT | `/api/user/me/email` | `SCOPE_user` | 换绑邮箱 |
 
@@ -356,6 +403,7 @@ key 内已带 `{yyyyMMdd}`，即便上一日的 key 因故未及时过期，也�
   - 携带 `code` → 验证码登录
   - 两者都传或都不传 → 参数错误。具体判定规则见 5.5。
 - **换绑拆分为两个接口**：`/me/phone` 与 `/me/email` 各自独立。原因见 5.5 换绑章节——两个接口的"新联系方式"校验对象不同，拆分后语义清晰，也便于前端按入口直接调用。
+- **换绑采用两阶段凭证**：先调用 `/me/rebind-verification` 消费旧身份验证码并取得 5 分钟有效的 `rebindTicket`，再由 `/me/phone` 或 `/me/email` 验证新联系方式并完成换绑。新验证码失败时 Ticket 仍可在有效期内重试，不要求用户重新验证旧身份。
 - **`refresh` / `logout` 与 Token 机制**：见 5.6。`refresh` **匿名访问**（靠 `refreshToken` 自身鉴权，此时 `accessToken` 通常已过期）；`logout` **需要登录态**。
 - **前端同步**：当前前端为开发阶段，路径变更直接同步修改前端，不做兼容层。
 - **实际结论**：经实测，前端目前**未接入任何普通用户接口**，因此本次路径变更对现有前端零影响，详见第 10 节。
@@ -382,13 +430,13 @@ key 内已带 `{yyyyMMdd}`，即便上一日的 key 因故未及时过期，也�
 
 **`/api/user/auth/logout` 不在放行清单内**——它需要 `SCOPE_user` 权限。
 
-> **另一个必须做的安全校验**：资源服务器的 JWT 校验必须**拒绝 `tokenType != access` 的令牌**。否则 `refreshToken` 会被当成有效访问令牌直接调用业务接口，绕过整个会话机制。详见 5.6.10。
+> **另一个必须做的安全校验**：资源服务器使用 `accessJwtDecoder`，必须**拒绝 `tokenType != access` 的令牌**；`/auth/refresh` 使用独立的 `refreshTokenVerifier`，在不进入业务认证链的前提下校验签名、issuer、时间字段和 `tokenType == refresh`。不得用资源服务器 Decoder 验证 Refresh Token，也不得为了 refresh 放宽资源服务器规则。详见 5.6.10。
 
 ### 5.3 接口详细定义
 
 #### POST /api/user/auth/send-code
 
-发送验证码，注册 / 验证码登录 / 重置密码三场景共用。
+发送验证码，注册、验证码登录、重置密码、换绑旧身份和换绑新联系方式共用。
 
 请求：
 
@@ -400,41 +448,47 @@ key 内已带 `{yyyyMMdd}`，即便上一日的 key 因故未及时过期，也�
 }
 ```
 
+`scene=REBIND_NEW` 时额外传入 `"rebindTicket": "<ticketId>"`；其余场景不得传该字段。`REBIND_OLD` 与 `REBIND_NEW` 请求都必须携带有效 Access Token；虽然路径在 Spring Security 中允许匿名进入，但 Service 必须按场景拒绝缺少用户身份的请求。
+
 响应：统一 `Result<Void>`，不返回验证码本身。
 
 校验规则（按序）：
 
-1. `targetType` 对应渠道总开关必须启用（读 `auth.phone.enabled` / `auth.email.enabled`），否则返回 `AUTH_CHANNEL_DISABLED`。
-2. `targetType` 对应验证码子开关必须启用（读 `auth.phone.code.enabled` / `auth.email.code.enabled`），否则返回 `CODE_FUNCTION_DISABLED`。
-3. **防刷间隔**：检查 `auth:code:send-lock:{scene}:{targetType}:{target}` 是否存在，存在则返回 `CODE_SEND_TOO_FREQUENT`（60 秒内只能发一次）。
-4. **防刷上限（已确认）**：检查 `auth:code:daily:{targetType}:{target}:{yyyyMMdd}` 计数是否 ≥ **10**，超出返回 `CODE_SEND_LIMIT_EXCEEDED`。**按自然日统计**，TTL 到当日结束（见 4.2.2）。
-5. 场景与目标的一致性校验：
+1. 按 2.5 节规范化 `target`，后续只使用规范值。
+2. `targetType` 对应渠道总开关必须启用（读 `auth.phone.enabled` / `auth.email.enabled`），否则返回 `AUTH_CHANNEL_DISABLED`。
+3. `targetType` 对应验证码子开关必须启用（读 `auth.phone.code.enabled` / `auth.email.code.enabled`），否则返回 `CODE_FUNCTION_DISABLED`。
+4. 场景与目标的一致性校验：
    - `REGISTER`：该 `target` **不得**已被注册，否则返回 `TARGET_ALREADY_REGISTERED`。
    - `LOGIN`、`RESET_PASSWORD`：该 `target` **必须**已注册，否则返回 `TARGET_NOT_REGISTERED`。
-6. 生成验证码并写入 Redis，同时落发送锁、累加当日计数（见 4.2.1）。
+   - `REBIND_OLD`：必须已登录，且 `target` 必须是当前用户已绑定的可用验证渠道。
+   - `REBIND_NEW`：必须已登录，`rebindTicket` 必须有效且其 `userId + sessionId + passwordVersion` 与当前请求和数据库账号状态一致，`target` 不得已被其他账号绑定。
+5. 生成验证码，通过 4.2.1 的 Lua 脚本原子检查并占用 60 秒发送锁、每日 10 次额度，同时写入验证码摘要。脚本返回频繁或超限时不得调用发送方。
+6. Lua 成功后调用 `CodeSender`；按 4.2.1 的失败补偿规则处理确定失败与未知结果。
 
-> 安全提示：第 5 条会暴露「某手机号是否已注册」，这是注册/登录流程的必要代价，业界普遍接受。若需规避，可统一返回发送成功但不实际发送，代价是用户体验下降。
+> 安全提示：第 4 条的场景一致性校验会暴露「某手机号是否已注册」，这是当前产品确认接受的取舍。若需规避，可统一返回发送成功但不实际发送，代价是用户体验下降。
 
 > 阈值（60 秒、10 条/天）可配置，不写死在代码里，便于上线后按实际短信成本调整。
 
 ### 5.4 验证码的通用规则（Redis 实现）
 
-**校验流程**（三个场景共用）：
+**校验流程**（所有验证码场景共用）：
 
-1. 读取 `auth:code:{scene}:{targetType}:{target}`。
-2. key 不存在 → 返回 `VERIFICATION_CODE_INVALID`（**已过期与码错误统一归入此码**，Redis 已自动清理过期 key，不再单独区分 `VERIFICATION_CODE_EXPIRED`，该错误码保留但仅在确需区分时使用）。
-3. 码不匹配 → `INCR auth:code:fail:...`，返回 `VERIFICATION_CODE_INVALID`。
-4. 码匹配 → **原子 `DEL` 验证码 key**，依据删除数量判断是否抢到本次校验；删除成功即校验通过并消费验证码，同时清理 `fail` 计数。
+1. 规范化目标并构造验证码 key 与失败计数 key。
+2. 调用一段 Lua 脚本，在同一原子操作中读取验证码摘要并处理本次尝试。
+3. 验证码 key 不存在 → 返回 `VERIFICATION_CODE_INVALID`（**已过期与码错误统一归入此码**）。
+4. 码不匹配 → 递增失败次数、对齐 TTL；达到 5 次时同时删除验证码 key，返回 `VERIFICATION_CODE_INVALID`。
+5. 码匹配 → 同时删除验证码 key 与失败计数 key；只有删除成功的请求视为校验通过，防止并发重复使用。
 
 **防重复使用**：由第 4 步的 `DEL` 保证——**删除成功才视为使用完成**，同一验证码不可能被二次使用。这替代了原表方案的 `used_at IS NULL` 条件更新。
 
 **失败计数规则**（防暴力破解）：
 
-- 每次校验失败，`INCR auth:code:fail:{scene}:{targetType}:{target}`。
+- 每次校验失败，`INCR auth:code:fail:{<targetType>:<target>}:<scene>`。
 - 计数达到 **5 次**时，**立即删除验证码 key**，该验证码作废，后续校验一律失败，用户须重新发送。
 - `fail` key 与验证码 key 同生命周期（验证码被删除或过期后，fail 计数一并清理，避免遗留）。
+- 发送新验证码时由发送资格 Lua 同步删除旧 `fail` key；验证码的失败次数不跨验证码继承。
 
-**并发与竞态说明**：Redis 的 `DEL` 是原子操作，天然解决「校验通过到标记已使用之间的窗口」问题，**不需要**原表方案里的「条件更新 + 受影响行数」技巧。这是改用 Redis 带来的实际简化。
+**并发与竞态说明**：整个比对、失败计数和成功消费由同一 Lua 脚本完成，解决「校验通过到标记已使用之间的窗口」以及并发失败次数丢失问题。
 
 **边界情况：验证码与目标变更**
 
@@ -474,10 +528,10 @@ key 内已带 `{yyyyMMdd}`，即便上一日的 key 因故未及时过期，也�
 
 1. 校验渠道开关与验证码子开关（读 `sys_config`，见 4.3.2）。
 2. 校验验证码（Redis 校验并消费，见 5.4）。
-3. 校验 `target` 未被注册。
+3. 校验 `target` 未被注册；该检查只用于提前返回，最终仍依赖 `uk_user_account_phone` / `uk_user_account_email`。插入时若命中联系方式唯一键，统一转换为 `TARGET_ALREADY_REGISTERED`。
 4. 生成雪花 `id`；按 4.1.1 规则生成 `user_no`（号段 + 随机后 4 位，命中特殊号或唯一冲突时重试）。
 5. `password` 非空则 BCrypt 加密写入；为空则 `password` 存 NULL。
-6. 写入 `user_account`，`status` 默认 1。
+6. 写入 `user_account`，`status` 默认 1，`password_version` 从 `0` 开始。
 
 > **验证码消费时机**：验证码在步骤 2 校验时即被 Redis `DEL` 消费。若后续步骤（如步骤 3 发现已注册）失败，验证码**不会**回滚——用户需重新获取。这是 Redis 方案的固有特性，且与「验证码一次性」的安全语义一致：不允许同一验证码在失败的请求里被反复尝试。
 
@@ -541,7 +595,9 @@ key 内已带 `{yyyyMMdd}`，即便上一日的 key 因故未及时过期，也�
 }
 ```
 
-流程：渠道与验证码子开关校验 → 验证码校验（Redis 消费） → 按 `target` 定位用户 → 更新密码。
+流程：规范化 `target` → 渠道与验证码子开关校验 → 验证码校验（Redis 消费） → 按 `target` 定位用户 → 在 MySQL 事务内使用 `SELECT ... FOR UPDATE` 锁定用户行、更新密码并递增 `password_version` → 提交 MySQL 事务 → 调用 `UserSessionService.revokeAll(userId)` 清理全部 Refresh 会话。
+
+`password_version` 是并发登录和 Redis 清理失败时的最终防线：Refresh 必须在 MySQL 短事务中用 `SELECT status, password_version ... FOR SHARE` 读取当前版本，并保持该读锁直到 Redis Lua CAS 完成；Lua 只有在 `claims.passwordVersion == session.passwordVersion == database.password_version` 时才允许轮换，版本不一致时原子吊销该 Session 并拒绝刷新。这样即使旧密码登录请求在密码事务提交前已通过校验、却在提交后才创建 Session，该 Session 也不能继续刷新。Redis 清理失败不回滚已经提交的密码修改，后续 Refresh 仍会因版本不一致失败，清理任务可安全重试。登录创建 Session 的主记录与用户 ZSET 必须在同一 Redis Lua 脚本中写入。吊销后既有 Access Token 最长仍可使用 30 分钟，这是本轮无状态 Access Token 的已知边界。
 
 #### PUT /api/user/me/password（修改密码，需登录）
 
@@ -553,6 +609,7 @@ key 内已带 `{yyyyMMdd}`，即便上一日的 key 因故未及时过期，也�
 
 - 身份从 Token 取得，需校验 `target` 确为该用户已绑定的联系方式（防止改他人密码）。
 - 身份验证通过后，仅允许修改**当前登录用户自己**的密码。
+- 修改成功后同样先提交 `password_version` 更新，再调用 `UserSessionService.revokeAll(userId)` 清理该用户**全部** Refresh 会话，包括当前会话；本轮统一要求重新登录，不保留当前设备。并发登录与 Refresh 按上一段的版本校验处理。
 
 #### GET /api/user/me
 
@@ -590,84 +647,50 @@ key 内已带 `{yyyyMMdd}`，即便上一日的 key 因故未及时过期，也�
 
 仅允许修改**非身份类**资料（`nickname`、`avatar`）。**手机号与邮箱不通过此接口修改**，必须走 `/me/phone`、`/me/email` 的换绑流程，否则会绕过身份验证。
 
-#### PUT /api/user/me/phone（换绑手机号）
-
+#### POST /api/user/me/rebind-verification（验证旧身份）
 
 ```json
 {
-  "oldTarget": "13800138000",
-  "oldTargetType": "PHONE",
-  "oldCode": "123456",
+  "target": "13800138000",
+  "targetType": "PHONE",
+  "code": "123456"
+}
+```
+
+旧身份允许使用当前账号已绑定且系统启用了验证码能力的手机号或邮箱，不要求与即将换绑的渠道相同。服务端规范化 `target`，确认其属于当前用户，消费 `REBIND_OLD` 验证码后生成一次性随机 `ticketId`，写入：
+
+```text
+auth:rebind:{ticketId} = { userId, passwordVersion, sessionId, issuedAt }
+TTL = 5 分钟
+```
+
+实际 value 为 `{ userId, passwordVersion, sessionId, issuedAt }`。签发时从当前账号读取 `passwordVersion`，并绑定签发该 Ticket 的 Access Token 的 `sessionId`。响应只返回 `rebindTicket`。Ticket 必须使用安全随机值，不包含可由客户端修改的用户信息，不写入日志；只能由同一用户、同一登录会话且密码版本未变化时使用。
+
+#### PUT /api/user/me/phone（换绑手机号）
+
+```json
+{
+  "rebindTicket": "<ticketId>",
   "newPhone": "13900139000",
   "newCode": "654321"
 }
 ```
 
-流程：
-
-1. 校验旧渠道与新渠道（固定为 `PHONE`）的开关与验证码开关。
-2. **旧身份验证**：`oldTarget` 必须是当前用户已绑定的联系方式，且 `oldCode` 校验通过。
-3. **新联系方式验证**：`newCode` 校验通过；`newPhone` 不得已被其他用户绑定。
-4. 更新 `user_account` 的 `phone` 列。
-
 #### PUT /api/user/me/email（换绑邮箱）
-
-请求体与手机号换绑对称：
 
 ```json
 {
-  "oldTarget": "13800138000",
-  "oldTargetType": "PHONE",
-  "oldCode": "123456",
+  "rebindTicket": "<ticketId>",
   "newEmail": "new@example.com",
   "newCode": "654321"
 }
 ```
 
-流程同上，最终更新 `user_account` 的 `email` 列。
+两个换绑接口执行同一流程：规范化新联系方式 → 校验目标渠道开关与 Ticket 归属（比较 `userId + sessionId + passwordVersion`，此时不消费 Ticket）→ 校验并消费 `REBIND_NEW` 验证码 → 用 Lua/CAS 原子校验并删除 `rebindTicket` → 在 MySQL 事务内更新目标列。Ticket 中的 `userId`、`sessionId` 和 `passwordVersion` 必须分别等于当前 Access Token 与数据库当前账号状态；密码变化后旧 Ticket 自动失效。
 
-**两个接口的差异**：仅「新联系方式」的校验对象与更新列不同（`newPhone`/`phone` 与 `newEmail`/`email`）。**旧身份验证部分完全共用同一套逻辑。**
+新验证码错误、渠道不可用或新联系方式已明确被占用时不消费 `rebindTicket`，用户可在 5 分钟有效期内修正后重试。Ticket 过期、已消费、格式非法或不属于当前用户统一返回 `REBIND_TICKET_INVALID`（`40014`），不向客户端区分具体原因。同一 Ticket 的并发请求只能有一个成功删除并进入数据库更新。若 Ticket 消费后数据库因并发唯一键冲突或基础设施故障而更新失败，验证码与 Ticket 均不恢复，用户需重新完成旧身份验证；这是跨 Redis/MySQL 操作选择失败关闭的明确取舍。
 
-#### 换绑的旧身份验证规则（已确认，非推断）
-
-旧身份验证允许使用当前账号已绑定的**手机号或邮箱二选一**，**不要求必须使用正在被更换的那个渠道**。
-
-- 换手机号：可用旧手机号验证码，也可用当前已绑定邮箱的验证码完成旧身份验证；
-- 换邮箱：可用旧邮箱验证码，也可用当前已绑定手机号的验证码完成旧身份验证。
-
-即 `oldTarget` / `oldTargetType` 与 `newPhone`（或 `newEmail`）的渠道**可以不同**。
-
-用于旧身份验证的渠道必须**同时**满足三个条件：
-
-1. 当前账号**已绑定**该联系方式；
-2. 对应渠道在系统配置中**总开关已启用**；
-3. 对应渠道**验证码功能已启用**。
-
-**新联系方式必须单独验证**，不存在「旧身份验证通过就跳过新验证」的情况：
-
-- 换手机号 → 必须验证新手机号；
-- 换邮箱 → 必须验证新邮箱。
-
-**完整流程**：
-
-```
-旧手机号 / 旧邮箱 二选一验证当前身份
-  → 验证新的手机号 / 邮箱
-  → 两步都通过
-  → 完成换绑
-```
-
-**可用旧验证渠道的数量约束**：
-
-- 当前账号**只有一个可用的旧验证渠道**时，只能使用该渠道；
-- 当前账号**没有任何可用的旧验证渠道**时，**普通换绑流程不能继续**，返回错误并终止。人工申诉 / 账号恢复流程另行设计，不在本次范围。
-
-> 该场景的实际含义：例如用户只绑定了手机号，而手机号渠道的总开关被后台停用，此时该用户没有任何可用旧验证渠道，换绑会被拒绝。这是渠道停用带来的必然结果，需在运维时知悉。
-
-**换绑的两个关键顺序约束**：
-
-1. **先验证旧身份，再验证新联系方式**。不得颠倒，也不得跳过任一步。
-2. **两步都通过后才写入数据库**，整个换绑在一个事务内完成。若新验证码校验失败，旧验证码**不应**被标记为已使用——否则用户需重新走完整流程。
+当前账号没有任何可用旧验证渠道时，`/rebind-verification` 返回 `NO_AVAILABLE_VERIFY_CHANNEL`。人工申诉 / 账号恢复流程另行设计，不在本次范围。
 
 **约束（数据保留）**：换绑只更新对应列的值，**不删除**原联系方式数据行。用户换绑手机号后，`phone` 列被新值覆盖，这与「关闭渠道不得删除数据」是两件事——后者指停用渠道开关时不清理用户已绑定的值。
 
@@ -678,16 +701,13 @@ key 内已带 `{yyyyMMdd}`，即便上一日的 key 因故未及时过期，也�
 ```http
 POST /api/user/auth/logout
 Authorization: Bearer <accessToken>
-Content-Type: application/json
-
-{ "refreshToken": "<refreshToken>" }
 ```
 
-`refreshToken` 用于定位要吊销的会话。服务端须从 `accessToken` 取 `userId`、从请求体 `refreshToken` 取 `sessionId`，并**校验二者一致**，否则会变成「吊销他人会话」的漏洞。
+接口无请求体。服务端从已经通过资源服务器校验的 `accessToken` 读取 `userId + sessionId`，只允许定位并吊销该 Access Token 所属会话。
 
-服务端执行 **`DEL auth:session:{userId}:{sessionId}` + `ZREM auth:session:user:{userId} {sessionId}`**。
+服务端通过一段 Lua 脚本原子执行 **`DEL auth:session:{userId}:{sessionId}` + `ZREM auth:session:user:{userId} {sessionId}`**。两个 key 共享 `{userId}` hash tag。
 
-响应：`Result<Void>`。**只吊销当前会话**——每个 session 是独立 key，该用户其他会话（其他设备）**不受任何影响**。吊销后再用该 `refreshToken` 调 `/auth/refresh` 会失败。接口**幂等**（会话已过期时仍返回成功）。
+响应：`Result<Void>`。**只吊销当前会话**——每个 session 是独立 key，该用户其他会话（其他设备）**不受任何影响**。吊销后该会话的 Refresh Token 调 `/auth/refresh` 会失败。接口**幂等**（会话已过期时仍返回成功）。
 
 > **`accessToken` 的残余有效性问题**：吊销只影响该会话的 `refreshToken`。`accessToken` 是无状态 JWT，在其剩余有效期内（最长 30 分钟）**仍然可用**。这是双 Token 模式的固有代价，短有效期即为压缩该窗口。若要立即失效需引入 access token 黑名单，**本轮不做**。
 
@@ -707,20 +727,20 @@ GET 响应：
 PUT 请求：
 
 ```http
-PUT /api/sys-user/auth-channels/PHONE
+PUT /api/sys-user/auth-channels/phone
 Content-Type: application/json
 
 { "channelEnabled": true, "codeEnabled": false }
 ```
 
-`{channel}` 取值为 `PHONE` / `EMAIL`（大写，与路径风格一致）。对应写入的 `sys_config` 键：
+`{channel}` 的文档规范值为小写 `phone` / `email`；Controller 可做大小写兼容，无法转换为已知枚举时返回 `40000`。对应写入的 `sys_config` 键：
 
 | 请求字段 | 写入的 config_key |
 |----------|-------------------|
 | `channelEnabled` | `auth.phone.enabled` / `auth.email.enabled` |
 | `codeEnabled` | `auth.phone.code.enabled` / `auth.email.code.enabled` |
 
-**约束校验（已简化）**：若本次修改会导致 `auth.phone.enabled` 与 `auth.email.enabled` **同时为 `0`**，则拒绝并返回 `CANNOT_DISABLE_ALL_CHANNELS`，保证至少一个渠道的**总开关**可用。
+**约束校验（已简化）**：在同一事务中用 `SELECT ... FOR UPDATE` 锁定两个渠道总开关；若本次修改会导致 `auth.phone.enabled` 与 `auth.email.enabled` **同时为 `0`**，则拒绝并返回 `CANNOT_DISABLE_ALL_CHANNELS`，保证至少一个渠道的**总开关**可用。
 
 验证码子开关（`*.code.enabled`）**不参与**这条校验，也不需要 `auth.rebind.require-available-channel` 之类的额外配置项。
 
@@ -756,12 +776,12 @@ key 设计（**保留 `userId + sessionId` 维度**）：
 
 | key | 含义 |
 |-----|------|
-| `auth:session:{userId}:{sessionId}` | **会话主记录**（**每个 session 一个独立 key**），value 为该会话当前有效的 `refreshToken` 摘要与必要信息（`jti`、签发时间等），**不存明文 Token**；TTL = refresh 有效期 |
-| `auth:session:user:{userId}` | 该用户的**会话索引 ZSET**：member = `sessionId`，**score = 该会话的过期时间戳**（毫秒）。用于「按用户枚举 / 吊销全部会话 / 清理过期会话」及后续设备管理页面 |
+| `auth:session:{userId}:{sessionId}` | **会话主记录**（**每个 session 一个独立 key**），value 为该会话当前有效的 `refreshToken` 摘要与必要信息（`jti`、签发时读取的 `passwordVersion` 等），**不存明文 Token**；TTL = refresh 有效期 |
+| `auth:session:user:{userId}` | 该用户的**会话索引 ZSET**：member = `sessionId`，**score = 该会话的过期时间戳**（毫秒）；索引 TTL 在登录和 Refresh 时同步刷新为 refresh 有效期。用于「按用户枚举 / 吊销全部会话 / 清理过期会话」及后续设备管理页面 |
 
-> **为何用 ZSET 而不是 SET**：score 存会话过期时间戳后，可**按分数范围查询与清理已过期会话**（如 `ZRANGEBYSCORE ... 0 <now>` 取出并 `ZREM`），无需逐个 `EXISTS` 探测。这是为后续「过期会话清理」「设备管理页面按最近使用排序」预留的能力。
+> **为何用 ZSET 而不是 SET**：score 存会话过期时间戳后，可**按分数范围查询与清理已过期会话**（如 `ZRANGEBYSCORE ... 0 <now>` 取出并 `ZREM`），无需逐个 `EXISTS` 探测。这是为后续「过期会话清理」「设备管理页面按到期时间排序」预留的能力。
 >
-> **不再使用 `auth:session:revoked:{jti}`**：当前 session 记录中的有效 `jti` 已足以判断旧 Refresh Token 是否失效（不一致即失效，见 5.6.3），**无需额外维护 revoked key**——少一个 key 就少一处一致性与清理负担。
+> **不再使用 `auth:session:revoked:{jti}`**：当前 session 记录中的有效 `jti` 与 `passwordVersion` 足以判断旧 Refresh Token 是否失效（见 5.6.3），**无需额外维护 revoked key**；检测到 `jti` 复用时直接删除当前 session。
 >
 > **`sessionId` 而非 `deviceId`**：本项目管理的是「**登录会话**」——每次成功登录生成一个**独立 `sessionId`**，不识别真实硬件指纹。这样 Web、App、多浏览器天然各自独立，无需处理「同一设备换浏览器」「指纹漂移」等问题。
 >
@@ -775,19 +795,21 @@ key 设计（**保留 `userId + sessionId` 维度**）：
 2. **同时签发新的 `accessToken` + `refreshToken`**，`sessionId` **保持不变**（同一会话续期）。
 3. 新令牌返回给前端，前端须**同时替换两个令牌**。
 
-**判定旧令牌失效的依据**：该会话主记录中的 `jti` 必须与请求令牌的 `jti` **一致**；若已被轮换（记录中的 `jti` 已变）或记录不存在 → 拒绝。**仅凭这一条即可判定失效，不需要额外的 revoked 标记**。
+**判定旧令牌失效的依据**：该会话主记录中的 `jti` 必须与请求令牌的 `jti` **一致**；若记录不存在，返回统一的 `REFRESH_TOKEN_INVALID`。若签名、issuer、时间字段均有效，但记录中的 `jti` 已变，视为 Refresh Token **复用（reuse）**：必须在同一 Lua 脚本中原子删除当前 session 主记录并从用户 ZSET 移除该 session，记录内部安全事件后返回统一的 `REFRESH_TOKEN_INVALID`，不得只拒绝本次请求而保留攻击者可能拿到的新令牌。并发提交同一令牌也会触发该严格策略，因此客户端必须对 refresh 实现 single-flight，避免自身并发请求误吊销会话。
 
-**原子性要求（Lua / CAS）**：rotation 必须用 **Lua 脚本或 CAS（比较并交换）原子地「比较旧 `jti` → 替换为新 `jti`」**，不允许多步非原子操作。同一 `refreshToken` 被并发提交两次时，只有一个请求能成功替换，另一个因 `jti` 已不匹配而必然失败。
+本方案明确接受严格复用策略的取舍：若服务端已经成功轮换但响应丢失，客户端再次提交旧令牌也会触发整个 Session 吊销。客户端不得对无法确认结果的 Refresh 请求盲目重试；收到 `REFRESH_TOKEN_INVALID` 后必须重新登录。
 
-- **`sessionId` 始终不变**，只更新该 session key 内保存的 `jti` 与 TTL。
-- 同时**刷新 ZSET 中该 `sessionId` 的 score**（会话过期时间戳随续期后移）。
+**原子性要求（Lua / CAS）**：rotation 必须用 **Lua 脚本或 CAS（比较并交换）原子地完成「读取 session → 比较旧 `jti` 与 `passwordVersion` → 一致时替换为新 `jti`、刷新主记录 TTL、更新用户会话 ZSET score；`jti` 不一致时删除整个 session」**，不允许多步非原子操作。脚本返回 `ROTATED`、`INVALID` 或 `REUSE_DETECTED` 三种内部结果，外部对后两者统一返回 `REFRESH_TOKEN_INVALID`。
+
+- **`sessionId` 始终不变**，只更新该 session key 内保存的 `jti` 与 TTL；`jti` 或密码版本不匹配时都不得轮换。
+- 同一 Lua/CAS 操作同时**刷新 ZSET 中该 `sessionId` 的 score 和索引 TTL**（会话过期时间戳随续期后移，索引 TTL 刷新为 refresh 有效期）。两个 key 必须使用相同的 `{userId}` Redis Cluster hash tag，保证脚本可在同一 slot 执行。
 - **不允许先查后写**（这与验证码用 `DEL` 防重放是同一原则）。
 
 #### 5.6.4 退出登录与会话吊销
 
 **退出登录只吊销当前会话**，不影响该用户的其他会话。
 
-**当前 session logout 执行两步**：
+**当前 session logout 在同一 Lua 脚本内执行两步**：
 
 1. **`DEL auth:session:{userId}:{sessionId}`** —— 删除当前会话主记录。
 2. **`ZREM auth:session:user:{userId} {sessionId}`** —— 从用户会话 ZSET 中移除该 `sessionId`。
@@ -801,7 +823,7 @@ key 设计（**保留 `userId + sessionId` 维度**）：
 
 **新登录不得覆盖用户已有会话。**
 
-- 每次成功登录（密码登录 / 验证码登录 / 注册自动登录）都生成**一个全新的 `sessionId`**，写入 `auth:session:{userId}:{sessionId}`，并 `ZADD auth:session:user:{userId} {过期时间戳} {sessionId}`。
+- 每次成功登录（密码登录 / 验证码登录 / 注册自动登录）都生成**一个全新的 `sessionId`**。所有登录流程必须把账号读取时取得的 `passwordVersion` 写入 Access/Refresh claims 和会话主记录；会话主记录、`ZADD auth:session:user:{userId} {过期时间戳} {sessionId}` 和 `PEXPIRE auth:session:user:{userId} <refresh TTL>` 必须由同一 Redis Lua 脚本原子写入。凭据校验完成后不得重新读取版本并覆盖原值，否则会重新打开改密并发窗口。
 - 同一用户可**同时存在多个有效会话**（Web、App、多个浏览器各算一个），**各自是独立 key，互不干扰**。
 - **refresh 只轮换当前 session**；**退出登录只吊销当前 session**。
 - **当前不强制限制最大设备数**：`maxSessions` 作为后续可配置项预留，本轮不实现、不做超限驱逐。
@@ -842,17 +864,17 @@ Content-Type: application/json
 
 **校验顺序**：
 
-1. 校验 `refreshToken` 的签名与有效期（JWT 自身校验），并确认 `tokenType == refresh`。
-2. 从 claims 取 `userId`、`sessionId`、`jti`。
-3. **用 Lua / CAS 原子执行：读取 `auth:session:{userId}:{sessionId}`，比对其中 `jti` 与请求令牌的 `jti`，一致则替换为新 `jti` 并刷新 TTL**。
-4. 若 key 不存在，或 `jti` 不一致（已被轮换）→ `REFRESH_TOKEN_INVALID`。
-5. 校验用户仍存在且未被禁用（此步在原子替换之后，若用户已禁用则需回滚/吊销该会话）。
-6. **刷新 `auth:session:user:{userId}` 中该 `sessionId` 的 score** 为新过期时间戳（`ZADD` 覆盖）。
-7. 签发新的 `accessToken` + `refreshToken`（**携带同一 `sessionId`**）并返回。
+1. 使用独立的 `refreshTokenVerifier` 校验 `refreshToken` 的签名、issuer、时间字段，并确认 `tokenType == refresh`；不得使用只接受 Access Token 的资源服务器 Decoder。
+2. 从 claims 取 `userId`、`sessionId`、`jti`、`passwordVersion`。
+3. 在短 MySQL 只读事务中用 `SELECT status, password_version FROM user_account WHERE id = ? FOR SHARE` 读取账号当前状态和 `password_version`，并保持该读锁直到第 5 步 Redis Lua/CAS 完成；用户不存在或已禁用时吊销该 session 并拒绝刷新。
+4. 生成新 `jti` 并预先签发新的 `accessToken` + `refreshToken`（**携带同一 `sessionId`**）。
+5. **用 Lua / CAS 原子执行**：读取 `auth:session:{userId}:{sessionId}`，同时比对旧 `jti`、claims 中的 `passwordVersion` 和第 3 步读取的数据库 `password_version`；三者一致时替换为新 `jti`、刷新主记录 TTL、更新 ZSET score 并刷新 ZSET TTL。若 `jti` 不一致，原子删除整个 session 及 ZSET 成员并返回内部结果 `REUSE_DETECTED`；若任一密码版本不一致，原子删除该 session 并返回 `INVALID`。
+6. key 不存在、版本不一致或 `jti` 不一致时，统一返回 `REFRESH_TOKEN_INVALID`；预签发的新令牌不得返回。
+7. 原子替换成功后提交第 3 步的只读事务，再返回预签发的新双 Token；任一失败结果都回滚该只读事务并返回错误。
 
 > **`sessionId` 在 rotation 前后始终不变**，仅 `jti` 与过期时间改变。这保证一次续期**不会新增会话**，ZSET 成员数量稳定。
 >
-> **步骤 3~4 必须在同一原子操作内完成**：若拆成「先读比对、再写替换」，并发提交同一 `refreshToken` 时两个请求都可能通过比对，从而各自签发一组令牌。这是本方案**唯一必须用 Lua/CAS 而非普通 GET/SET 的地方**。
+> **步骤 5 的比较、替换、TTL 与 ZSET 更新必须在同一原子操作内完成**：若拆成「先读比对、再写替换」，并发提交同一 `refreshToken` 时两个请求都可能通过比对，从而各自签发一组令牌。验证码发送资格和换绑 Ticket 也分别使用各自的 Lua/CAS，三类脚本职责独立。
 
 #### 5.6.8 令牌有效期配置
 
@@ -875,36 +897,34 @@ app:
 |------|------|------|------|
 | POST | `/api/user/auth/logout` | `SCOPE_user` | 退出登录，**只吊销当前会话** |
 
-请求体：`{ "refreshToken": "<refreshToken>" }`（用于定位要吊销的会话）。响应：`Result<Void>`。
+接口无请求体。响应：`Result<Void>`。
 
 **吊销逻辑（当前 session logout = `DEL` + `ZREM`）**：
 
-- 从 `accessToken` 的认证上下文取 `userId`，从请求体的 `refreshToken` 解析出 `sessionId`。
-- **必须校验二者一致**（即该 `refreshToken` 确实属于当前登录用户），防止吊销他人会话。
+- 从已经通过 `accessJwtDecoder` 校验的 `accessToken` 认证上下文取 `userId + sessionId`。
 - **`DEL auth:session:{userId}:{sessionId}`** 删除当前会话主记录。
 - **`ZREM auth:session:user:{userId} {sessionId}`** 从用户会话 ZSET 移除该会话。
 - **每个 session 是独立 key，删除当前 session 不影响该用户其他会话。**
-- **接口幂等**：若主记录已因 TTL 过期而消失（`DEL` 返回 0），仍执行 `ZREM` 并返回成功，不报错。
+- **接口幂等**：若主记录已因 TTL 过期而消失（`DEL` 返回 0），Lua 仍执行 `ZREM` 并返回成功，不报错。
 
-> 也可改为不传请求体、直接用 `accessToken` 的 `sessionId` 定位——两种都能准确定位当前会话。**本轮取「请求体传 `refreshToken`」的方案**，因为它额外完成了一次「客户端确实持有该会话 refreshToken」的校验。
->
 > **后续可扩展「退出全部设备」**（如 `POST /api/user/auth/logout-all`）：按 ZSET 枚举全部 `sessionId` 逐个 `DEL`，最后删除 ZSET。**本轮不实现**。
 
 #### 5.6.10 涉及的 JWT 结构变更
 
-`refreshToken` 与 `accessToken` **必须可区分**，避免用 `refreshToken` 直接调用业务接口。claims 设计：
+`refreshToken` 与 `accessToken` **必须可区分**，避免用 `refreshToken` 直接调用业务接口。系统用户 Access Token 也必须显式携带 `tokenType=access`，避免启用严格校验后破坏现有管理端登录。claims 设计：
 
-| claim | `accessToken` | `refreshToken` |
-|-------|---------------|----------------|
-| `tokenType` | `access` | `refresh` |
-| `userId` | ✅ | ✅ |
-| `sessionId` | ✅ | ✅（**同一个值**） |
-| `jti` | — | ✅（当前令牌唯一 ID，用于 rotation 比对） |
-| `scope` | ✅（`user` / `admin`） | ❌ **不带业务 scope** |
+| claim | 系统用户 `accessToken` | 普通用户 `accessToken` | 普通用户 `refreshToken` |
+|-------|------------------------|--------------------------|---------------------------|
+| `tokenType` | `access` | `access` | `refresh` |
+| `userId` | ✅ | ✅ | ✅ |
+| `sessionId` | — | ✅ | ✅（与用户 Access Token 相同） |
+| `jti` | — | — | ✅（当前令牌唯一 ID，用于 rotation 比对） |
+| `passwordVersion` | — | ✅（签发时读取的版本） | ✅（与用户 Access Token 相同） |
+| `scope` | `admin` | `user` | ❌ **不带业务 scope** |
 
-- **`userId` + `sessionId` 在两个令牌中保持一致**，这样无论是用 `accessToken` 还是 `refreshToken`，都能**准确定位并吊销当前会话**。
+- 普通用户两个令牌中的 **`userId + sessionId + passwordVersion` 保持一致**：refresh 用 Refresh Token 定位会话，logout 用 Access Token 定位当前会话；Refresh 还用 `passwordVersion` 检测密码变更后的旧会话。
 - `sessionId` 每次登录新生成（见 5.6.5）；同一会话内 refresh 轮换时 **`sessionId` 不变**，只换 `jti`。
-- 资源服务器的 JWT 校验需**拒绝 `tokenType != access` 的令牌**，否则 `refreshToken` 会被当成有效访问令牌使用，形成严重漏洞。
+- `accessJwtDecoder` 负责资源服务器认证并拒绝 `tokenType != access`；独立的 `refreshTokenVerifier` 只供 `/auth/refresh` 使用并要求 `tokenType == refresh`。两者都执行相同的签名、issuer 和标准时间字段校验。
 
 ## 6. 错误码设计
 
@@ -925,6 +945,7 @@ app:
 | 400 | `40011` | `TARGET_ALREADY_BOUND` | 该联系方式已被其他账号绑定 |
 | 400 | `40012` | `NO_AVAILABLE_VERIFY_CHANNEL` | 当前账号没有可用的身份验证渠道 |
 | 400 | `40013` | `LOGIN_METHOD_AMBIGUOUS` | 登录凭证不明确，密码与验证码不可同时提交 |
+| 400 | `40014` | `REBIND_TICKET_INVALID` | 换绑凭证无效、已过期、已消费或不属于当前用户 |
 | 401 | `40101` | `INVALID_CREDENTIALS` | 账号或密码错误（已有） |
 | 401 | `40103` | `PASSWORD_NOT_SET` | 该账号未设置密码，请改用验证码登录 |
 | 401 | `40104` | `REFRESH_TOKEN_INVALID` | Refresh Token 无效、已过期或已被吊销 |
@@ -942,18 +963,21 @@ app:
 |------|------|------|
 | config | `config/RedisConfig.java` | Redis 连接、`RedisTemplate` 与 key/value 序列化配置 |
 | config | `config/properties/AuthCodeProperties.java` | 验证码 TTL、发送间隔、每日上限等配置绑定 |
-| store | `auth/store/VerificationCodeStore.java` | **验证码 Redis 存取**：写入、校验并消费、失败计数、发送锁、每日计数 |
-| store | `auth/store/RefreshTokenStore.java` | **会话 Redis 存取**：按 `{userId}:{sessionId}` 写入 / 读取会话、**Lua / CAS 原子比对并替换 `jti`**、`ZADD`/`ZREM` 维护用户会话 ZSET（score=过期时间戳）、`DEL` 吊销单个会话、按 ZSET 枚举 / 吊销用户全部会话 |
-| service | `auth/service/UserSessionService.java` | 双 Token 签发编排（生成 `sessionId`）、refresh rotation（`sessionId` 保持不变、原子替换 jti）、退出登录 `DEL` + `ZREM` 吊销当前会话（见 5.6） |
+| store | `auth/store/VerificationCodeStore.java` | **验证码 Redis 存取**：Lua 原子占用发送资格、写入 `sendId`/额度预留、校验并消费、失败计数、带版本保护的失败补偿 |
+| store | `auth/store/RefreshTokenStore.java` | **会话 Redis 存取**：按 `{userId}:{sessionId}` 写入 / 读取会话、**Lua / CAS 原子比对并替换 `jti` 与 `passwordVersion`**、复用检测后吊销整个会话、`ZADD`/`ZREM`/`PEXPIRE` 维护用户会话 ZSET（score=过期时间戳）、按 ZSET 枚举 / 吊销用户全部会话 |
+| store | `auth/store/RebindTicketStore.java` | 5 分钟换绑凭证的签发、归属校验（`userId + sessionId + passwordVersion`）与 Lua/CAS 原子消费；无效、过期、已消费和归属错误统一映射 `REBIND_TICKET_INVALID` |
+| service | `auth/service/UserSessionService.java` | 双 Token 签发编排、refresh rotation 与 reuse detection、当前会话退出以及密码变化后的全部会话清理（见 5.6） |
+| service | `auth/service/RefreshTokenVerifier.java` | 独立校验 Refresh Token 的签名、issuer、时间字段与 `tokenType=refresh`，不进入资源服务器认证链 |
 | vo | `auth/vo/UserTokenVO.java` | 登录 / 注册 / refresh 统一返回体（`accessToken` + `refreshToken`） |
-| dto | `auth/dto/UserRefreshDTO.java` / `auth/dto/UserLogoutDTO.java` | `/auth/refresh`、`/auth/logout` 请求体 |
+| dto | `auth/dto/UserRefreshDTO.java` | `/auth/refresh` 请求体；`/auth/logout` 无请求体 |
 | entity | `config/entity/SysConfig.java` | `sys_config` 配置实体 |
-| mapper | `config/mapper/SysConfigMapper.java` + XML | `sys_config` 数据访问（按 key 查、按 group 批量查、更新） |
+| mapper | `config/mapper/SysConfigMapper.java` + XML | `sys_config` 数据访问（按 key 查、按 group 批量查、更新、`SELECT ... FOR UPDATE` 锁定两个渠道总开关） |
 | service | `auth/service/AuthChannelConfigService.java` | 渠道开关查询与校验（**读 `sys_config` 的 4 个 `auth.*` 键**，含推导规则见 4.3.2） |
 | service | `auth/service/VerificationCodeService.java` | 验证码生成、发送编排、校验、防刷（依赖 `VerificationCodeStore`） |
 | service | `auth/service/sender/CodeSender.java` | 发送接口（短信/邮件） |
 | service | `auth/service/sender/LoggingCodeSender.java` | **打桩实现**：仅打日志，不真实发送 |
 | service | `user/service/UserMeService.java`（或并入既有 Service） | 当前用户信息、资料修改、换绑 |
+| service | `user/service/ContactNormalizer.java` | 手机号 E.164 与邮箱统一小写等规范化；数据库和 Redis 统一使用规范值 |
 | service | `user/service/UserNoGenerator.java` | `user_no` 生成：号段 + 随机位 + 特殊号过滤 + 唯一冲突重试 |
 | config | `config/properties/UserNoProperties.java` | 号段 secret（`USER_NO_SECRET`）、号段区间、随机位数、重试次数等配置绑定 |
 | config | `config/UserNoSpecialNumbers.java`（或同类配置类） | **特殊号码规则集中配置**，不写死在数据库 |
@@ -969,24 +993,24 @@ app:
 
 | 文件 | 改动 |
 |------|------|
-| `user/entity/UserAccount.java` | 移除 `username`；新增 `userNo`/`phone`/`email`/`password`；保留 `nickname`/`avatar`/`status` |
+| `user/entity/UserAccount.java` | 移除 `username`；新增 `userNo`/`phone`/`email`/`password`/`passwordVersion`；保留 `nickname`/`avatar`/`status` |
 | `mapper/user/UserAccountMapper.xml` | 字段与查询条件全部重写：按 `phone`/`email` 查询，`keyword` 改为搜 `user_no`/`phone`/`email` |
-| `user/mapper/UserAccountMapper.java` | 新增按 `phone`/`email` 查询、更新密码、更新手机号/邮箱、更新资料、插入用户 |
+| `user/mapper/UserAccountMapper.java` | 新增按 `phone`/`email` 查询、更新密码并递增 `password_version`、更新手机号/邮箱、更新资料、插入用户；唯一键异常按约束名分类转换 |
 | `auth/service/impl/UserAuthServiceImpl.java` | 重写为双登录 + 验证码场景；登录/注册成功后签发双 Token |
-| `auth/service/JwtTokenService.java` | `createUserAccessToken` 的 `username` claim 改为 `user_no`；**新增 `createUserRefreshToken`**；claims 增加 `tokenType`（见 5.6.10）；两令牌有效期分别读取配置 |
+| `auth/service/JwtTokenService.java` | `createUserAccessToken` 的 `username` claim 改为 `user_no`；**新增 `createUserRefreshToken`**；普通用户两个令牌携带同一 `passwordVersion`，系统用户与普通用户 Access Token 都增加 `tokenType=access`，Refresh Token 使用 `tokenType=refresh`；两令牌有效期分别读取配置 |
 | `auth/controller/UserAuthController.java` | 路径改为 `/auth/register`、`/auth/login`、`/auth/send-code`、`/auth/reset-password`、`/auth/refresh`、`/auth/logout`；移除 `/auth/me` |
-| `config/JwtConfig.java` | `jwtDecoder` 的校验器需**拒绝 `tokenType != access` 的令牌**（见 5.6.10）；新增 refresh 有效期配置绑定 |
+| `config/JwtConfig.java` | 提供资源服务器专用 `accessJwtDecoder`（拒绝 `tokenType != access`）及 Refresh Token 基础解码能力；新增 refresh 有效期配置绑定（见 5.6.10） |
 | `user/dto/UserAccountQueryDTO.java` | `keyword` 语义变更，`status` 保留 |
 | `user/vo/UserAccountListVO.java` | 字段调整为 `user_no`/`phone`/`email`/`nickname`/`status` 等 |
 | `user/vo/UserInfoVO.java` | 字段调整；或由新的 `/me` 响应 VO 取代 |
 | `config/SecurityConfig.java` | 匿名放行认证类接口（见 5.2）；`logout` 不在放行清单 |
 | `common/error/ErrorCode.java` | 新增错误码（见 6） |
 | `user/service/impl/UserAccountServiceImpl.java` | 列表查询字段调整 |
-| `pom.xml` | 新增 `spring-boot-starter-data-redis` 依赖 |
-| `src/main/resources/application.yml` | 新增 `spring.data.redis` 连接配置（地址/端口/密码走环境变量）；新增 `app.user-no` 配置块：`secret`（`USER_NO_SECRET`）、`daily-segment-min/max`、`random-digit-count`、`max-retry`；新增验证码 TTL/间隔/日上限配置；**`app.jwt.access-token-expiration` 由 `24h` 改为 `30m`，新增 `refresh-token-expiration: 30d`** |
-| `web_project.sql` | 新增 `sys_config` 建表 + 4 条 `auth.*` 初始化数据；**删除 `verification_codes`、`auth_channel_config` 建表语句** |
-| `database/migrations/20260928_user_account_dual_login.sql` | **重写**：去掉 `verification_codes` 与 `auth_channel_config` 建表，改为建 `sys_config` 并插入 4 条数据 |
-| `docs/api.md` | 普通用户章节重写：`user_no` 字段、新接口路径、新错误码 |
+| `pom.xml` | 新增 `spring-boot-starter-data-redis` 与锁定版本的 `com.googlecode.libphonenumber:libphonenumber` 依赖 |
+| `src/main/resources/application.yml` | 新增 `spring.data.redis` 连接配置（地址/端口/密码走环境变量）；新增 `app.auth.default-region: CN`；新增 `app.user-no` 配置块：`secret`（`USER_NO_SECRET`）、`daily-segment-min/max`、`random-digit-count`、`max-retry`；新增验证码 TTL/间隔/日上限配置；**`app.jwt.access-token-expiration` 由 `24h` 改为 `30m`，新增 `refresh-token-expiration: 30d`** |
+| `web_project.sql` | `user_account` 新增 `password_version` 字段；新增 `sys_config` 建表 + 4 条 `auth.*` 初始化数据；**删除 `verification_codes`、`auth_channel_config` 建表语句** |
+| `database/migrations/20260928_user_account_dual_login.sql` | **重写**：`user_account` 增加 `password_version`，去掉 `verification_codes` 与 `auth_channel_config` 建表，改为建 `sys_config` 并插入 4 条数据 |
+| `docs/api.md` | **只在代码实现并通过验收后**重写普通用户章节；编码期间继续保留当前实现契约，避免把目标方案误写成已上线接口 |
 | `docs/engineering.md` | 「当前业务范围」段落重写（新增注册、双登录、换绑等能力）；运行配置章节补充 `USER_NO_SECRET` 说明与「不随 JWT 轮换」约束、Redis 连接配置、敏感配置边界 |
 | `README.md` | 功能说明、接口速览、建表说明、迁移清单同步；补充 Redis 依赖说明 |
 
@@ -1009,16 +1033,18 @@ app:
 |------|------|
 | `config/JwtSecurityTest.java` | `new UserAccount()` + `setUsername()` 改为新字段（`setUserNo` 等）；`/api/user/auth/me` 路径改为 `/api/user/me` |
 | `common/exception/GlobalExceptionHandlerTest.java` | 构造参数调整 |
-| **新增** | 验证码防刷（60 秒锁、每日 10 条）、渠道开关推导、换绑（含无可用渠道场景）、重置密码、登录方式判定的测试 |
-| **新增** | `UserNoGenerator` 单元测试：号段映射范围、同日号段稳定、特殊号码全部被过滤、唯一冲突重试、位数可配置 |
-| **新增** | `VerificationCodeStore` 测试：验证码写入与 TTL、校验成功后 key 被删除（不可重复使用）、失败 5 次后 key 被删除、每日计数 TTL 落在当日结束而非固定 86400 秒 |
-| **新增** | `AuthChannelConfigService` 测试：4 个键的推导规则、「两个总开关不得同时为 0」的守卫 |
-| **新增** | `RefreshTokenStore` 测试：会话写入与校验、rotation 后旧 `jti` 失效、**并发提交同一令牌只有一次成功（Lua/CAS）**、**连续 refresh 后 ZSET 成员数保持为 1（sessionId 不变）**、吊销单个会话不影响其他会话、按 ZSET 枚举 / 吊销全部会话 |
-| **新增** | 双 Token 测试：`refreshToken` **不能**用于访问业务接口（`tokenType` 校验）、refresh 后旧 refreshToken 立即失效、logout 后该会话 refresh 失败 |
+| **新增** | `ContactNormalizer` 测试：邮箱大小写/空格与手机号展示格式统一命中同一规范值、合法号码按默认地区转为 E.164、非法号码被拒绝、数据库查询和 Redis key 使用同一规范值 |
+| **新增** | 验证码防刷（60 秒锁、每日 10 条）、新验证码重置失败计数、旧 `sendId` 的失败补偿不得删除新验证码或回退新额度、渠道开关推导、两阶段换绑（含 Ticket 并发消费、失败关闭和密码版本变化后失效）、匿名 `REBIND_OLD/REBIND_NEW` 必须返回 401、重置密码、登录方式判定的测试 |
+| **新增** | `UserNoGenerator` 单元测试：号段映射范围、同日号段稳定、特殊号码全部被过滤、`user_no` 唯一冲突重试、phone/email 唯一冲突不重试号码、位数可配置 |
+| **新增** | `VerificationCodeStore` 测试：并发发送只有一个取得资格、锁与每日计数原子写入、确定发送失败补偿及额度预留幂等、旧 `sendId` 不得删除新验证码、重新发送清理旧失败计数、验证码 TTL、校验成功后不可重复使用、失败 5 次后失效、每日计数 TTL 落在当日结束 |
+| **新增** | `AuthChannelConfigService` 测试：4 个键的推导规则、「两个总开关不得同时为 0」的守卫，以及两个并发请求分别关闭 PHONE/EMAIL 时只能一个成功 |
+| **新增** | `RefreshTokenStore` 测试：会话写入与 `passwordVersion` 校验、rotation 后旧 `jti` 失效、**并发提交同一令牌只有一次成功且复用会吊销整个 session（Lua/CAS）**、密码版本变化后旧 session 不能 refresh、**连续 refresh 后 ZSET 成员数保持为 1（sessionId 不变）**、吊销单个会话不影响其他会话、按 ZSET 枚举 / 吊销全部会话 |
+| **新增** | 双 Token 测试：系统用户和普通用户 Access Token 均通过 `accessJwtDecoder`；`refreshToken` 不能访问业务接口；Access Token 不能用于 refresh；refresh 后旧 Refresh Token 立即失效；无请求体 logout 后该会话 refresh 失败 |
 | **新增** | 多会话测试：**同一用户两次登录产生两个独立会话、互不影响**；A 会话 refresh 不影响 B 会话；A 会话 logout 后 B 会话仍可用；**新登录不使旧会话失效** |
+| **新增** | 密码安全测试：忘记密码重置与登录态修改密码成功后全部 Refresh 会话失效；旧密码已通过校验但在改密提交后才创建的 Session 因 `passwordVersion` 不一致而不能 refresh；Redis 清理失败时密码版本已提交且旧 Refresh 仍被拒绝，清理可重试 |
 | **测试环境要求** | 涉及 Redis 的测试需要可用 Redis 实例（本地已有）。工程规范要求涉及中间件的修改需在真实实例验证，**不得用 mock 通过当作验证通过**（对应 `docs/engineering.md` 对 MySQL 的同类要求） |
 
-## 8. 待确认事项
+## 8. 已确认事项
 
 | # | 事项 | 状态 / 当前倾向 | 影响 |
 |---|------|----------------|------|
@@ -1034,7 +1060,7 @@ app:
 | 10 | 换绑接口是否合为一个 | ✅ 已确认拆为 `/me/phone` 与 `/me/email` | 已定 |
 | 11 | 是否需要兼容旧接口/旧字段 | ✅ **已确认：不需要**。新项目、无历史数据，全部直接就位 | 已定 |
 | 12 | 号段 secret 是否复用 JWT secret | ✅ **已确认：不复用**。新增独立 `USER_NO_SECRET`，上线后保持稳定，不随 JWT 密钥轮换 | 详见 4.1.3 |
-| 13 | Redis 用途范围 | ✅ **已确认**：验证码存储 + 验证码防刷 + 通用 Redis 基础设施 | 详见 4.2 |
+| 13 | Redis 用途范围 | ✅ **已确认**：验证码存储与防刷、Refresh 会话、换绑 Ticket | 详见 4.2 |
 | 14 | 验证码是否落 MySQL | ✅ **已确认：不落库**，表取消；不提供历史审计统计，将来需要审计单独加事件日志 | 详见 4.2.3 |
 | 15 | `sys_config` 是否加 Redis 缓存 | ✅ **已确认：不加**，本轮直接读 MySQL | 详见 4.3.4 |
 | 16 | 渠道开关是否拆细到场景级 | ✅ **已确认：不拆**，只保留 4 个键，业务能力由 4 个键推导 | 详见 4.3.1 / 4.3.2 |
@@ -1047,6 +1073,14 @@ app:
 | 23 | 是否维护 `auth:session:revoked:{jti}` | ✅ **已确认：不维护**，当前 session 保存的有效 `jti` 已足以判断旧令牌失效 | 详见 4.2 / 5.6.3 |
 | 24 | 用户会话索引用什么结构 | ✅ **已确认：ZSET**，member=`sessionId`，score=会话过期时间戳，便于过期清理 / logout-all / 设备管理 | 详见 4.2 / 5.6.2 |
 | 25 | rotation 的原子性实现方式 | ✅ **已确认：Lua / CAS** 原子比较并替换当前 session 的 `jti`，`sessionId` 始终不变 | 详见 5.6.3 / 5.6.7 |
+| 26 | 联系方式是否统一规范化 | ✅ **已确认：统一规范化**，数据库与 Redis 只使用规范值 | 详见 2.5 |
+| 27 | 验证码防刷并发策略 | ✅ **已确认：Lua 原子占用**发送锁、每日额度与验证码 key | 详见 4.2.1 |
+| 28 | 换绑验证码流程 | ✅ **已确认：两阶段 `rebindTicket`**，新验证失败不要求重做旧身份验证 | 详见 5.5 |
+| 29 | 密码变化后的会话策略 | ✅ **已确认：吊销全部 Refresh 会话并要求重新登录** | 详见 5.5 |
+| 30 | 渠道总开关并发守卫 | ✅ **已确认：MySQL `SELECT ... FOR UPDATE` 锁定两行** | 详见 4.3.3 |
+| 31 | Access / Refresh 校验入口 | ✅ **已确认：独立校验器**，资源服务器只接受 Access Token | 详见 5.6.10 |
+| 32 | Logout 如何定位会话 | ✅ **已确认：无请求体，使用 Access Token 的 `userId + sessionId`** | 详见 5.6.9 |
+| 33 | 渠道路由大小写 | ✅ **已确认：文档统一小写 `phone` / `email`，Controller 可兼容大小写** | 详见 5.5 管理端接口 |
 
 ### 8.1 不做兼容的范围（已确认）
 
@@ -1068,26 +1102,25 @@ app:
 
 ## 9. 实施顺序建议
 
-1. 确认第 8 节剩余待定事项（**已全部清零**，不再阻塞）。
+1. 确认第 8 节事项（**已全部清零**，不再阻塞）。
 2. 表结构定稿：`web_project.sql` 新增 `sys_config`、删除两张旧表；迁移脚本同步。
 3. 引入 Redis：`pom.xml` 依赖 + `application.yml` 连接配置 + `RedisConfig` 序列化，并**先验证连通性**。
 4. 配置落位：`application.yml` 增加 `app.user-no`、验证码 TTL/间隔/日上限、**双 Token 有效期（access 30m / refresh 30d）**配置。
-5. `sys_config` 实体与 Mapper，`AuthChannelConfigService`（4 键推导 + 守卫校验）。
-6. `UserNoGenerator` 与 `UserNoProperties`（含特殊号配置与重试），并补单元测试。
-7. `VerificationCodeStore`（Redis 存取，含 4 类 key 与自然日 TTL），并补测试。
-8. `VerificationCodeService`（发送编排 + `CodeSender` 打桩实现）。
-9. 认证接口（注册、双登录、重置密码）。
-10. 换绑接口。
-11. `SecurityConfig` 与错误码。
-12. **双 Token 多会话**：`RefreshTokenStore`（按 `{userId}:{sessionId}` DEL/SET + **Lua/CAS 原子比对替换 jti** + 用户会话 **ZSET（`ZADD`/`ZREM`）** 维护 + 枚举/全量吊销）、`JwtTokenService.createUserRefreshToken`（含 `tokenType` / `sessionId` claim）、`JwtConfig` 的 `tokenType != access` 拒绝逻辑、`/auth/refresh`、`/auth/logout`。此步必须在第 9 步（签发）之后，因为它同时改动签发与校验两端。
-13. 文档重写（`docs/api.md`、`docs/engineering.md`、`README.md`）。
-14. 测试补充，并在**真实 Redis + MySQL** 上验证，最后跑 `clean test`。
-
-> 第 12 步与前序步骤存在交叉：登录/注册（第 9 步）若先只签发 accessToken，则第 12 步需回头改签发逻辑。若希望一次性完成，可将第 9 步与第 12 步合并实施——**代价是单个变更集变大、出错时定位范围变宽**。建议按上述顺序分两步，第 9 步先让「单 accessToken」跑通，第 12 步再补齐 refresh 链路。
+5. 实现 `ContactNormalizer`，确保后续数据库与 Redis 功能从第一步就使用规范值。
+6. 实现 `sys_config` 实体、Mapper 与 `AuthChannelConfigService`，包含两行 `FOR UPDATE` 并发守卫。
+7. 实现 `UserNoGenerator` 与 `UserNoProperties`（含特殊号配置与重试）。
+8. 实现 `VerificationCodeStore` 与 `RebindTicketStore` 的 Lua/CAS 原子操作，并先完成并发测试。
+9. 实现 `RefreshTokenStore`、`UserSessionService`、双 Token 签发、`accessJwtDecoder` 与 `refreshTokenVerifier`。
+10. 实现 `VerificationCodeService`（发送编排 + `CodeSender` 打桩实现）。
+11. 实现注册、双登录、refresh、重置密码与无请求体 logout；从首次提交起直接返回完整双 Token，不引入临时单 Token 阶段。
+12. 实现 `/me`、改密、两阶段换绑与资料修改接口。
+13. 完成 `SecurityConfig` 与错误码，并覆盖系统用户登录回归。
+14. 在真实 Redis + MySQL 上执行并发、事务与接口验收，运行 `clean verify`。
+15. 验收通过后再重写 `docs/api.md`，并同步 `docs/engineering.md` 与 `README.md`。
 
 ## 10. 风险提示
 
-- **代码与表结构当前不一致**：`UserAccountMapper.xml` 仍查询已删除的 `username`，实体类同样是旧字段（`username`/`nickname`/`avatar`/`status` 与表的 `user_no`/`phone`/`email`/`password`/`nickname`/`avatar`/`status` 不一致）。**连真实数据库必然报 `Unknown column`**。现有测试全部使用 mock、不访问数据库，因此 `mvnw clean test` 会显示通过，此为**假绿**，不代表代码可用。
+- **目标表结构与当前代码必须在同一实施批次切换**：当前生产代码、Mapper 与 `web_project.sql` 仍共同使用 `username`，彼此一致；实现本方案时必须同时切换为 `user_no` / `phone` / `email`，避免只改 SQL 或只改 Java 后出现 `Unknown column`。Mock 测试不能替代真实 MySQL 验收。
 - **本方案改动面较大**，涉及认证授权核心链路 + 新增 Redis 中间件，建议分步实施并在可丢弃的 MySQL 测试库 + 真实 Redis 上做验证（`docs/engineering.md` 已要求：涉及数据库查询的修改需单独在 MySQL 测试库验证）。
 - **Redis 成为新的可用性依赖**：验证码发送与校验全部依赖 Redis。若 Redis 不可用，注册、验证码登录、重置密码、换绑都会失败（密码登录不受影响，因其不依赖验证码）。处理约定：
   - Redis 故障按**基础设施故障**处理，返回 `INTERNAL_SERVER_ERROR`（`50000`），**不新增业务错误码**、不伪装成「验证码错误」，避免误导用户反复重试。
@@ -1096,7 +1129,7 @@ app:
 - **每日上限的 TTL 计算容易写错**：`auth:code:daily:*` 若用固定 `86400` 秒，会变成「首次发送后滚动 24 小时」，与「自然日 10 条」不符（见 4.2.2）。必须按「距当日 24:00 的剩余秒数」设置，且要有测试覆盖。这是本次改动里最容易埋错的一处。
 - **验证码不落库带来的可观测性缺口**：无法统计历史发送量、无法追溯某次发送记录（见 4.2.3）。打桩阶段影响有限，但**上线接入真实短信渠道后**，若出现资费异常或用户投诉，将缺少直接的数据依据，只能依赖日志采集。建议届时同步上线发送事件日志。
 - **key 命名空间隔离**：Redis key 使用 `auth:` 前缀。若同一 Redis 实例被多个应用或环境共用，需确认前缀不冲突，或将不同环境指向不同 db/实例。
-- **短信成本风险**：若不实现防刷或阈值过宽，攻击者可反复触发发送，直接产生短信费用。因此防刷（第 5.3 节 `/api/user/auth/send-code` 第 3、4 条）属于**必做项**而非可选项。注意：当前发送渠道为打桩实现，**上线前必须替换为真实渠道并复核防刷阈值**。
+- **短信成本风险**：若不实现防刷或阈值过宽，攻击者可反复触发发送，直接产生短信费用。因此联系方式规范化与第 5.3 节的 Lua 原子发送资格占用属于**必做项**而非可选项。注意：当前发送渠道为打桩实现，**上线前必须替换为真实渠道并复核防刷阈值**。
 - **渠道开关的运维风险**：若运维误将两个渠道总开关都关闭，且业务校验失效，会导致所有用户无法登录、无法注册、**且无法通过被关闭的渠道找回**。第 4.3.3 节与 `/api/sys-user/auth-channels` 的约束校验是防止此场景的唯一防线，必须有测试覆盖。
 - **`sys_config` 的越权写入风险**：`sys_config` 是通用配置表，后续若有其他模块写入，需注意 `auth.*` 键只能由管理端渠道配置接口维护，避免其他入口误改导致认证能力被关闭。同时必须坚持「敏感配置不入库」——一旦有人把密钥类配置写进 `sys_config`，将以明文形式落库。
 - **渠道停用导致的换绑死锁风险**：若用户只绑定了一种联系方式，而该渠道被后台停用，则该用户**没有任何可用旧验证渠道，无法换绑**（详见 5.5）。此时唯一的自救路径是后台重新启用该渠道。运维停用渠道前需评估影响面。
@@ -1104,22 +1137,22 @@ app:
 - **`user_no` 的号段可被推测**：`PP` 由「日期 + secret」确定性得出，知道算法即可推算当日号段，后 4 位随机空间仅 1 万。因此 `user_no` **只能作为展示标识，不可作为凭据、不可用于登录、不可单独用于鉴权**。这是需求已确认的定位（登录仍靠手机号/邮箱），实现时不得扩大其用途。
 - **`USER_NO_SECRET` 的运维约束**：该 secret **上线后必须保持稳定**，不得因安全策略随 JWT 密钥一起轮换。轮换不会造成 `user_no` 重复（唯一性由数据库兜底），但会让同一天注册的用户号段不一致，属可见的异常现象。部署时应把它与 `JWT_SECRET` 分开管理、分开记录轮换计划。若 secret 缺失或为空，**应用启动应直接失败**（参照 `JwtConfig` 对 JWT secret 的处理），不得静默降级为某个默认值。
 - **防刷阈值是成本开关**：每日 10 条、间隔 60 秒是按「短信按条计费」预设的保守值。上线接入真实渠道后需按实际资费和用户投诉率复核；阈值可配置，不需要改代码。
-- **`refreshToken` 不能当访问令牌用（严重漏洞）**：两类令牌同源同算法，若资源服务器不校验 `tokenType`，则**长效的 refreshToken 可直接用于访问业务接口**，等于把 30 分钟的有效期绕成 30 天，整个双 Token 设计失效。因此 `JwtConfig` 的 `jwtDecoder` **必须拒绝 `tokenType != access` 的令牌**（见 5.6.10），且必须有测试覆盖（用 refreshToken 打业务接口必须 401）。这是本轮改动中**最容易被漏掉、后果最严重**的一处。
+- **`refreshToken` 不能当访问令牌用（严重漏洞）**：两类令牌同源同算法，若资源服务器不校验 `tokenType`，则**长效的 refreshToken 可直接用于访问业务接口**，等于把 30 分钟的有效期绕成 30 天，整个双 Token 设计失效。因此 `accessJwtDecoder` 必须拒绝 `tokenType != access`，`refreshTokenVerifier` 必须只接受 `tokenType=refresh`，且系统用户 Access Token 也要显式带 `tokenType=access`。测试必须覆盖两类令牌的双向误用。
 - **吊销 refresh 后 `accessToken` 仍有残余有效期**：`accessToken` 无状态，服务端不保存也不查询。退出登录只删除 Redis 中的 refresh 会话，**已签发的 `accessToken` 在其剩余有效期内（最长 30 分钟）依然可用**。这是无状态 JWT 的固有代价，不是缺陷。若业务要求「退出即刻失效」，必须改为有状态校验（每次请求查 Redis 会话），代价是每个请求多一次 Redis 往返——**本轮不采用**。
-- **多会话下攻击者可持续持有会话（无最大会话数限制）**：本轮**不限制最大设备数**（见 5.6.5），也**不做超限驱逐**。这意味着若攻击者已取得用户凭据并建立会话，**用户在其他设备登录不会把攻击者挤下线**，攻击者可凭 refreshToken 长期续期（默认 30 天）。缓解手段：① 用户侧「查看登录设备 + 踢出指定会话」页面（key 结构已支持，本轮未实现）；② 「退出全部设备」接口（同上）。**这是多会话策略的固有代价，不是缺陷**，但上线前应确认产品是否接受，并规划会话管理页面的排期。
-- **会话记录中保存 `jti` 而非明文令牌**：会话主记录只需保存当前有效 `jti`（用于 rotation 比对）。**严禁把明文 `refreshToken` 存进 Redis**——Redis 一旦被读取或误导出，等同于令牌泄露。5.6.2 已明确「不存明文 Token」。
-- **ZSET 中的成员可能残留**：`auth:session:user:{userId}` 是 ZSET，会话主记录 key 到期自动消失，但 **ZSET 成员不会随之移除**。因此枚举结果可能含有「score 已过期但成员仍在」的 `sessionId`。实现时需注意：① 读取时按 score 过滤过期项（`ZRANGEBYSCORE ... <now>`）；② 或定期按 score 清理；③ ZSET 本身设置 TTL（会话续期时刷新）。若不处理，`logout-all` / 设备管理列表会显示已失效会话，**不致命但结果不准确**。
+- **多会话下新登录不会挤掉旧会话**：本轮**不限制最大设备数**（见 5.6.5），也**不做超限驱逐**。用户正常登录不会使其他会话失效；但忘记密码重置或登录态修改密码会吊销全部 Refresh 会话，作为账号恢复的安全边界。后续仍可增加「查看登录设备」「踢出指定会话」和「退出全部设备」页面。
+- **会话记录中保存 `jti` / `passwordVersion` 而非明文令牌**：会话主记录保存当前有效 `jti` 与签发时的 `passwordVersion`，用于 rotation、复用检测和密码变更隔离。**严禁把明文 `refreshToken` 存进 Redis**——Redis 一旦被读取或误导出，等同于令牌泄露。5.6.2 已明确「不存明文 Token」。
+- **ZSET 中的成员可能短暂残留**：`auth:session:user:{userId}` 是 ZSET，会话主记录 key 到期自动消失，但成员要等按 score 清理或索引 TTL 到期才移除。登录和 Refresh 必须在同一 Lua 操作中刷新索引 TTL；枚举仍需按 score 过滤过期项（`ZRANGEBYSCORE ... <now>`），避免设备管理显示已失效会话。
 - **Redis 故障时 refresh 必须失败，不得放行**：refresh 的校验依赖 Redis 中的会话状态。若 Redis 不可用时选择「跳过校验直接签发」，等于任何人拿旧 refreshToken 都能无限续期，会话吊销彻底失效。**必须直接返回失败**（按基础设施故障处理）。这会造成「Redis 挂了 → 用户在 accessToken 过期后必须重新登录」，属可接受的降级方向。
-- **rotation 的原子性必须靠 Lua / CAS**：rotation 要求「旧 refreshToken 立即失效」，但客户端并发提交同一 refreshToken（如多标签页同时刷新）时，若用「先读比对、再写替换」，两个请求可能都通过比对并各自签发令牌。**必须用 Lua 脚本或 `WATCH/MULTI` (CAS) 把「比对旧 `jti` → 替换为新 `jti`」放在一次原子操作内**（见 5.6.3 / 5.6.7）。前端也应做单飞（single-flight）控制，避免自身触发该竞争。
+- **rotation 的原子性必须靠 Lua / CAS**：rotation 要求「旧 refreshToken 立即失效」，但客户端并发提交同一 refreshToken（如多标签页同时刷新）时，若用「先读比对、再写替换」，两个请求可能都通过比对并各自签发令牌。**必须用 Lua 脚本或 `WATCH/MULTI` (CAS) 把「比对旧 `jti` 与 `passwordVersion` → 一致时替换，不一致时按 `INVALID` / `REUSE_DETECTED` 处理并在复用时吊销整个 session」放在一次原子操作内**（见 5.6.3 / 5.6.7）。前端也应做单飞（single-flight）控制，避免自身触发该竞争。
 - **rotation 只影响当前会话（需正确实现）**：多会话下 rotation 必须**只改当前 `sessionId` 对应 key 的 `jti`**，`sessionId` 本身**始终不变**。若实现时误用「删旧 key + 新建 session」，会把一次续期变成「新增一个会话」，**导致 ZSET 成员无限增长、旧会话残留**。这是本方案最容易写错的一处，须有测试覆盖（连续 refresh 多次后，ZSET 成员数应保持为 1）。
 - **双 Token 引入了额外的客户端复杂度**：前端必须实现「401 → 自动 refresh → 重放原请求」的拦截器，并处理 refresh 本身失败（跳登录页）。这部分前端工作**不在本次后端方案范围内**，但排期时不能遗漏——否则接口做完了前端仍不可用。当前 `atlas-console` 尚无用户端页面，属新增开发。
 - **`WebSocket` / 长连接场景未覆盖**：双 Token 方案只针对 HTTP 请求。若将来引入长连接，`accessToken` 30 分钟过期需额外的心跳续期机制，本轮不涉及。
 - **接口路径不兼容**：`/api/user/auth/me` 改为 `/api/user/me`，且 `/auth/code` 更名为 `/auth/send-code`。**已实测前端无任何普通用户接口调用点**（见下条），因此不存在被破坏的调用方。此条仅在将来出现外部调用方时重新评估。
-- **前端现状核实（2026-09-28 实测）**：前端工程为 `E:\JavaProjects\web-project\atlas-console`（Vite + React/TS），axios `baseURL` 为 `/api`。**实测结论：前端目前只调用系统用户接口，尚未接入任何普通用户接口**：
+- **前端现状核实（2026-09-28）**：前端工程为 `D:\Develop\Projects\atlas\frontend`（Vite + React/TS），axios `baseURL` 为 `/api`。**当前前端只调用系统用户接口，尚未接入任何普通用户接口**：
   - `POST /sys-user/auth/login`（LoginPage）
   - `GET /sys-user/auth/me`（TopBar、RequireAdmin）
   - `GET /sys-user/sys-users`（SystemUsersPage）
   前端目录（`src/pages/`）也仅有 Dashboard、Login、SystemUsers、Placeholder，**没有普通用户端页面**。
   **因此本次路径变更（`/auth/me` → `/me`、`/auth/code` → `/auth/send-code`）对现有前端零影响**，不存在需要同步修改的调用点。方案中「同步修改前端」的表述仅适用于将来新增的用户端开发。
-  另注：`web-project/admin-web` 目录为空；`atlas-console` 中 `/sys-user/auth/me` 未受本次改动影响（系统用户认证不在本次范围）。
+  `atlas-console` 中 `/sys-user/auth/me` 未受本次改动影响（系统用户认证不在本次范围）。
 - **打桩实现的安全边界**：验证码打桩时若将验证码写入日志，日志将成为敏感信息泄漏渠道。建议仅在本地/开发环境打印，并在实现中明确标注替换点。
