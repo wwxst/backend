@@ -15,8 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 后台普通用户管理接口。
  *
- * 虽然代码属于 user 业务模块，
- * 但接口路径属于管理端，只允许管理员访问。
+ * 接口属于管理端，只允许拥有 admin 权限的系统用户访问。
  */
 @RestController
 @RequestMapping("/api/sys-user/users")
@@ -27,9 +26,6 @@ public class UserAccountController {
 
     /**
      * 分页查询普通用户列表。
-     *
-     * 请求示例：
-     * GET /api/sys-user/users?page=1&pageSize=10
      */
     @GetMapping
     public Result<PageResult<UserAccountListVO>> getUserPage(

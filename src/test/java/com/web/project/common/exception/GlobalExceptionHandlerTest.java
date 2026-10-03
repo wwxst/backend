@@ -1,6 +1,8 @@
 package com.web.project.common.exception;
 
 import com.web.project.auth.controller.SysUserAuthController;
+import com.web.project.admin.controller.SysUserController;
+import com.web.project.admin.service.SysUserService;
 import com.web.project.auth.service.SysUserAuthService;
 import com.web.project.common.error.ErrorCode;
 import com.web.project.common.result.PageResult;
@@ -14,6 +16,12 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.util.List;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import org.slf4j.LoggerFactory;
+
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -21,21 +29,35 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class GlobalExceptionHandlerTest {
     private final UserAccountService users = mock(UserAccountService.class);
     private final SysUserAuthService auth = mock(SysUserAuthService.class);
+    private final SysUserService sysUsers = mock(SysUserService.class);
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
-        mvc = MockMvcBuilders.standaloneSetup(new UserAccountController(users), new SysUserAuthController(auth))
+        mvc = MockMvcBuilders.standaloneSetup(new UserAccountController(users), new SysUserAuthController(auth),
+                        new SysUserController(sysUsers))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
     }
 
     @Test
     void invalidPageReturnsBadRequestWithoutCallingService() throws Exception {
-        for (String page : List.of("not-a-number", "0")) {
-            mvc.perform(get("/api/sys-user/users").param("page", page))
-                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40000));
+        for (String page : List.of("not-a-number", "0", "")) {
+            for (String path : List.of("/api/sys-user/users", "/api/sys-user/sys-users")) {
+                mvc.perform(get(path).param("page", page))
+                        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40000));
+            }
         }
-        verifyNoInteractions(users);
+        verifyNoInteractions(users, sysUsers);
+    }
+
+    @Test
+    void emptyPageSizeReturnsBadRequestWithoutCallingService() throws Exception {
+        for (String path : List.of("/api/sys-user/users", "/api/sys-user/sys-users")) {
+            mvc.perform(get(path).param("pageSize", ""))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value(40000));
+        }
+        verifyNoInteractions(users, sysUsers);
     }
 
     @Test
@@ -77,5 +99,57 @@ class GlobalExceptionHandlerTest {
         mvc.perform(get("/api/sys-user/users"))
                 .andExpect(status().isInternalServerError()).andExpect(jsonPath("$.code").value(50000))
                 .andExpect(jsonPath("$.msg").value(ErrorCode.INTERNAL_SERVER_ERROR.getDefaultMessage()));
+    }
+
+    @Test
+    void exceptionMessagesAreNotWrittenToApplicationLogs() throws Exception {
+        Logger logger = (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            when(users.getUserPage(any())).thenThrow(
+                    new IllegalStateException("password=secret-value, phone=13800138000",
+                            new java.sql.SQLException("SQL parameters: refresh-token-value")));
+            mvc.perform(get("/api/sys-user/users"))
+                    .andExpect(status().isInternalServerError());
+
+            assertEquals(1, appender.list.size());
+            ILoggingEvent event = appender.list.getFirst();
+            assertTrue(event.getFormattedMessage().contains("IllegalStateException"));
+            assertTrue(event.getFormattedMessage().contains("SQLException"));
+            assertTrue(event.getFormattedMessage().contains("GlobalExceptionHandlerTest"));
+            assertFalse(event.getFormattedMessage().contains("secret-value"));
+            assertFalse(event.getFormattedMessage().contains("13800138000"));
+            assertFalse(event.getFormattedMessage().contains("refresh-token-value"));
+            assertNull(event.getThrowableProxy());
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
+    void convertedServerFailureIsLoggedWithCauseAndSafeResponse() throws Exception {
+        Logger logger = (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            when(users.getUserPage(any())).thenThrow(new BusinessException(
+                    ErrorCode.INTERNAL_SERVER_ERROR, new IllegalStateException("secret-database-value")));
+            mvc.perform(get("/api/sys-user/users"))
+                    .andExpect(status().isInternalServerError())
+                    .andExpect(jsonPath("$.msg").value(ErrorCode.INTERNAL_SERVER_ERROR.getDefaultMessage()));
+
+            assertEquals(1, appender.list.size());
+            String diagnostic = appender.list.getFirst().getFormattedMessage();
+            assertTrue(diagnostic.contains("BusinessException"));
+            assertTrue(diagnostic.contains("IllegalStateException"));
+            assertFalse(diagnostic.contains("secret-database-value"));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 }

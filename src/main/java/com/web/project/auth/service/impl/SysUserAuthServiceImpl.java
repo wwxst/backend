@@ -2,11 +2,14 @@ package com.web.project.auth.service.impl;
 
 import com.web.project.admin.entity.SysUser;
 import com.web.project.admin.mapper.SysUserMapper;
+import com.web.project.auth.dto.RefreshTokenDTO;
 import com.web.project.auth.dto.SysUserLoginDTO;
+import com.web.project.auth.model.AccountType;
+import com.web.project.auth.service.AuthSessionService;
 import com.web.project.auth.service.SysUserAuthService;
-import com.web.project.auth.service.JwtTokenService;
+import com.web.project.auth.vo.AccessTokenVO;
 import com.web.project.auth.vo.SysUserInfoVO;
-import com.web.project.auth.vo.SysUserLoginVO;
+import com.web.project.auth.vo.TokenPairVO;
 import com.web.project.common.error.ErrorCode;
 import com.web.project.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
@@ -15,9 +18,9 @@ import org.springframework.stereotype.Service;
 
 
 /**
- * 管理员认证业务实现类。
+ * 系统用户认证业务实现类。
  *
- * 负责实现管理员登录和当前身份查询逻辑。
+ * 负责校验用户名和密码，成功后调用公共会话服务签发双 Token。
  */
 @Service
 @RequiredArgsConstructor
@@ -25,74 +28,61 @@ public class SysUserAuthServiceImpl implements SysUserAuthService {
 
     private final SysUserMapper sysUserMapper;
     private final PasswordEncoder passwordEncoder;
-    private final JwtTokenService jwtTokenService;
+    private final AuthSessionService authSessionService;
+
     /**
-     * 管理员登录。
+     * 系统用户登录。
+     *
      * @param loginDTO 登录参数
-     * @return 管理员登录结果
+     * @return 双 Token
      */
     @Override
-    public SysUserLoginVO login(SysUserLoginDTO loginDTO) {
-        // SysUserLoginDTO 是 record，读取属性使用 username()，
-        // 而不是传统 POJO 的 getUsername()。
+    public TokenPairVO login(SysUserLoginDTO loginDTO) {
         SysUser sysUser = sysUserMapper.selectByUsername(loginDTO.username());
 
-        /*
-         * 账号不存在和密码错误统一返回同一句提示，
-         * 避免别人通过接口判断某个账号是否真实存在。
-         */
-        if (sysUser == null ||
-                !passwordEncoder.matches(
-                        loginDTO.password(),
-                        sysUser.getPassword()
-                )) {
-            throw new BusinessException(ErrorCode.INVALID_CREDENTIALS); //账号或密码错误
+        // 账号不存在和密码错误使用同一提示，避免暴露账号是否存在。
+        if (sysUser == null || !passwordEncoder.matches(loginDTO.password(), sysUser.getPassword())) {
+            throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
         }
 
-        /*
-         * 密码验证成功后，再判断账号是否被禁用。
-         * 1 表示正常，0 表示禁用。
-         */
+        // 先验证凭据，再向账号持有人返回停用状态。
         if (!Integer.valueOf(1).equals(sysUser.getStatus())) {
-            throw new BusinessException(ErrorCode.SYS_USER_DISABLED); //当前账号已被禁用
+            throw new BusinessException(ErrorCode.SYS_USER_DISABLED);
         }
 
-        // 账号验证成功，生成 JWT
-        String token = jwtTokenService.createSysUserAccessToken(sysUser);
-
-        // 返回管理员信息和 Token
-        return new SysUserLoginVO(
-                sysUser.getId(),
-                sysUser.getUsername(),
-                sysUser.getNickname(),
-                token
-        );
+        // 系统用户没有密码版本字段，passwordVersion 传 null
+        return authSessionService.createSession(AccountType.SYS_USER, sysUser.getId(), null);
     }
 
     /**
-     * 获取当前登录管理员信息。
-     *
-     * @param adminId 管理员 ID
-     * @return 当前管理员信息
+     * 使用 Refresh Token 换取新的 Access Token。
+     */
+    @Override
+    public AccessTokenVO refresh(RefreshTokenDTO refreshTokenDTO) {
+        return authSessionService.refresh(refreshTokenDTO.refreshToken(), AccountType.SYS_USER);
+    }
+
+    /**
+     * 删除系统用户当前会话。
+     */
+    @Override
+    public void logout(String sessionId) {
+        authSessionService.logout(AccountType.SYS_USER, sessionId);
+    }
+
+    /**
+     * 获取当前登录系统用户信息。
      */
     @Override
     public SysUserInfoVO getCurrentSysUser(Long sysUserId) {
-        // 根据 Token 中的管理员 ID 查询数据库
         SysUser sysUser = sysUserMapper.selectById(sysUserId);
-        /*
-         * Token 虽然验证成功，但对应账号可能已经被删除。
-         * 此时当前登录状态应当视为失效。
-         */
+        // Access Token 有效期内账号可能已被删除或停用，资料查询以数据库最新状态为准。
         if (sysUser == null) {
-            throw new BusinessException(ErrorCode.LOGIN_STATUS_INVALID); //登录状态无效或已过期
+            throw new BusinessException(ErrorCode.LOGIN_STATUS_INVALID);
         }
 
-        /*
-         * 管理员可能在登录后被后台禁用。
-         * 因此不能只相信 Token，还要查询数据库中的最新状态。
-         */
         if (!Integer.valueOf(1).equals(sysUser.getStatus())) {
-            throw new BusinessException(ErrorCode.SYS_USER_DISABLED); //当前账号已被禁用
+            throw new BusinessException(ErrorCode.SYS_USER_DISABLED);
         }
 
         return new SysUserInfoVO(

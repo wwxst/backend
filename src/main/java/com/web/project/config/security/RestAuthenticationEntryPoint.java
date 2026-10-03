@@ -16,46 +16,30 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 /**
- * 未认证请求处理器。
- *
- * 用于处理：
- * 1. 没有携带 Token
- * 2. Token 格式错误
- * 3. Token 已过期
- * 4. Token 签名验证失败
+ * 未认证请求统一返回 HTTP 401 与业务错误码，不暴露具体 Token 校验原因。
  */
 @Component
 @RequiredArgsConstructor
 public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
-    /**
-     * Spring Boot 提供的 JSON 转换工具。
-     */
     private final ObjectMapper objectMapper;
+
     @Override
-    public void commence(HttpServletRequest request, HttpServletResponse response, AuthenticationException authException) throws IOException, ServletException {
-        // 设置真正的 HTTP 状态码为 401
-        response.setStatus(
-                HttpServletResponse.SC_UNAUTHORIZED
-        );
+    public void commence(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            AuthenticationException authException
+    ) throws IOException, ServletException {
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
 
-        response.setCharacterEncoding(
-                StandardCharsets.UTF_8.name()
-        );
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
 
-        response.setContentType(
-                MediaType.APPLICATION_JSON_VALUE
-        );
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
 
         Result<Void> result = Result.error(
-                //登录状态无效或已过期
                 ErrorCode.LOGIN_STATUS_INVALID.getCode(),
                 ErrorCode.LOGIN_STATUS_INVALID.getDefaultMessage()
         );
 
-        // 将 Result 对象转换成 JSON 写入响应
-        objectMapper.writeValue(
-                response.getOutputStream(),
-                result
-        );
+        objectMapper.writeValue(response.getOutputStream(), result);
     }
 }

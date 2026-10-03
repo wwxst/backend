@@ -1,10 +1,10 @@
 package com.web.project.auth.vo;
 /**
- * 当前登录管理员信息。
+ * 当前登录系统用户信息。
  *
- * @param id       管理员 ID
- * @param username 管理员账号
- * @param nickname 管理员昵称
+ * @param id       系统用户 ID
+ * @param username 系统用户账号
+ * @param nickname 系统用户昵称
  */
 public record SysUserInfoVO(
         Long id,

@@ -5,10 +5,12 @@ import java.time.LocalDateTime;
 /**
  * 后台用户列表返回数据。
  *
- * 不返回 password 字段。
+ * 不返回 password 和 password_version 字段。
  *
  * @param id        用户 ID
- * @param username  登录账号
+ * @param userNo    对外展示号码
+ * @param phone     手机号
+ * @param email     邮箱
  * @param nickname  用户昵称
  * @param status    状态：0禁用，1正常
  * @param createdAt 创建时间
@@ -16,10 +18,16 @@ import java.time.LocalDateTime;
  */
 public record UserAccountListVO(
         Long id,
-        String username,
+        String userNo,
+        String phone,
+        String email,
         String nickname,
         Integer status,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {
+    @Override
+    public String toString() {
+        return "UserAccountListVO[id=" + id + ", userNo=" + userNo + ", contacts=redacted]";
+    }
 }

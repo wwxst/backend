@@ -12,27 +12,23 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 
 /**
- * 管理员账号业务实现类。
+ * 系统用户列表业务实现。
  */
 @Service
 @RequiredArgsConstructor
 public class SysUserServiceImpl implements SysUserService {
 
     private final SysUserMapper sysUserMapper;
+
     /**
-     * 分页查询管理员账号列表。
+     * 分页查询系统用户列表。
      */
     @Override
     public PageResult<SysUserListVO> getSysUserPage(SysUserQueryDTO queryDTO) {
         int page = queryDTO.getPage();
         int pageSize = queryDTO.getPageSize();
 
-        /*
-         * 清理搜索关键词前后的空格。
-         *
-         * 如果前端传递的是纯空格，
-         * 就按照没有关键词处理。
-         */
+        // 空白关键词按未提供搜索条件处理。
         String keyword = queryDTO.getKeyword();
 
         if (keyword != null) {
@@ -45,34 +41,17 @@ public class SysUserServiceImpl implements SysUserService {
 
         Integer status = queryDTO.getStatus();
 
-        // 先查询符合条件的数据总数
         long total = sysUserMapper.countByCondition(keyword, status);
 
-        /*
-         * 没有数据时直接返回空列表，
-         * 避免继续执行分页查询 SQL。
-         */
         if (total == 0) {
             return new PageResult<>(0L, page, pageSize, List.of());
         }
 
-        /*
-         * 计算分页偏移量。
-         *
-         * 第 1 页：(1 - 1) × 10 = 0
-         * 第 2 页：(2 - 1) × 10 = 10
-         */
         long offset = (long) (page - 1) * pageSize;
 
-        // 查询当前页的数据
         List<SysUser> sysUsers = sysUserMapper.selectPageByCondition(keyword, status, offset, pageSize);
 
-        /*
-         * Entity 转换成 VO。
-         *
-         * 不直接返回 SysUser，
-         * 避免把 password 字段返回给前端。
-         */
+        // 列表只返回展示字段，密码密文不进入响应。
         List<SysUserListVO> records = sysUsers
                 .stream()
                 .map(sysUser -> new SysUserListVO(

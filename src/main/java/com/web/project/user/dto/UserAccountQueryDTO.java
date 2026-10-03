@@ -2,14 +2,13 @@ package com.web.project.user.dto;
 
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.Setter;
 
 /**
  * 后台用户列表查询参数。
- *
- * GET 请求中的查询参数会自动绑定到该对象。
  */
 @Getter
 @Setter
@@ -18,20 +17,20 @@ public class UserAccountQueryDTO {
     /**
      * 当前页码，默认第 1 页。
      */
+    @NotNull(message = "页码不能为空")
     @Min(value = 1, message = "页码不能小于1")
     private Integer page = 1;
 
     /**
      * 每页数量，默认 10 条，最多查询 100 条。
      */
+    @NotNull(message = "每页数量不能为空")
     @Min(value = 1, message = "每页数量不能小于1")
     @Max(value = 100, message = "每页数量不能超过100")
     private Integer pageSize = 10;
 
     /**
-     * 搜索关键词。
-     *
-     * 用于模糊搜索用户名或昵称。
+     * 用户号码、手机号、邮箱或昵称的模糊搜索关键词。
      */
     @Size(max = 50, message = "搜索关键词不能超过50个字符")
     private String keyword;

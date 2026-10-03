@@ -30,12 +30,7 @@ public class UserAccountServiceImpl implements UserAccountService {
         int page = queryDTO.getPage();
         int pageSize = queryDTO.getPageSize();
 
-        /*
-         * 去除关键词前后的空格。
-         *
-         * 如果用户传入的是纯空格，
-         * 则按照没有搜索条件处理。
-         */
+        // 空白关键词按未提供搜索条件处理。
         String keyword = queryDTO.getKeyword();
 
         if (keyword != null) {
@@ -48,13 +43,11 @@ public class UserAccountServiceImpl implements UserAccountService {
 
         Integer status = queryDTO.getStatus();
 
-        // 查询符合条件的数据总数
         long total = userAccountMapper.countByCondition(
                 keyword,
                 status
         );
 
-        // 没有数据时，不再继续执行分页查询
         if (total == 0) {
             return new PageResult<>(
                     0L,
@@ -64,12 +57,6 @@ public class UserAccountServiceImpl implements UserAccountService {
             );
         }
 
-        /*
-         * 计算 SQL 分页偏移量。
-         *
-         * 第 1 页：(1 - 1) × 10 = 0
-         * 第 2 页：(2 - 1) × 10 = 10
-         */
         long offset = (long) (page - 1) * pageSize;
 
         List<UserAccount> userAccounts =
@@ -80,17 +67,14 @@ public class UserAccountServiceImpl implements UserAccountService {
                         pageSize
                 );
 
-        /*
-         * Entity 转换成 VO。
-         *
-         * 数据库实体属于内部数据结构，
-         * VO 才是接口对外返回的数据结构。
-         */
+        // 列表只返回展示字段，密码与密码版本不进入响应。
         List<UserAccountListVO> records = userAccounts
                 .stream()
                 .map(userAccount -> new UserAccountListVO(
                         userAccount.getId(),
-                        userAccount.getUsername(),
+                        userAccount.getUserNo(),
+                        userAccount.getPhone(),
+                        userAccount.getEmail(),
                         userAccount.getNickname(),
                         userAccount.getStatus(),
                         userAccount.getCreatedAt(),

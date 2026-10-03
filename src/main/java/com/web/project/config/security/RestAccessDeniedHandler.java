@@ -16,29 +16,33 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 /**
- * 权限不足处理器。
- *
- * 当前用户已经通过身份认证，
- * 但没有权限访问目标接口时执行。
+ * 已认证用户权限不足时，统一返回 HTTP 403 与业务错误码。
  */
 @Component
 @RequiredArgsConstructor
 public class RestAccessDeniedHandler implements AccessDeniedHandler {
     private final ObjectMapper objectMapper;
+
     /**
      * 处理权限不足。
      */
     @Override
-    public void handle(HttpServletRequest request, HttpServletResponse response, AccessDeniedException accessDeniedException) throws IOException, ServletException {
+    public void handle(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            AccessDeniedException accessDeniedException
+    ) throws IOException, ServletException {
 
-        // 设置真正的 HTTP 状态码为 403
         response.setStatus(HttpServletResponse.SC_FORBIDDEN);
 
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
 
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
 
-        Result<Void> result = Result.error(ErrorCode.ACCESS_DENIED.getCode(), ErrorCode.ACCESS_DENIED.getDefaultMessage()); //没有权限访问该接口
+        Result<Void> result = Result.error(
+                ErrorCode.ACCESS_DENIED.getCode(),
+                ErrorCode.ACCESS_DENIED.getDefaultMessage()
+        );
 
         objectMapper.writeValue(response.getOutputStream(), result);
     }

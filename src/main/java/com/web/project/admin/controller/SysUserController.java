@@ -13,29 +13,20 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 管理员账号管理接口。
+ * 系统用户列表接口。
  */
 @RestController
 @RequestMapping("/api/sys-user/sys-users")
 @RequiredArgsConstructor
 public class SysUserController {
 
-    /**
-     * 管理员账号业务对象。
-     *
-     * final 配合 @RequiredArgsConstructor，
-     * 由 Spring 通过构造方法完成依赖注入。
-     */
     private final SysUserService sysUserService;
 
     /**
-     * 分页查询管理员账号列表。
-     *
-     * 请求示例：
-     * GET /api/sys-user/sys-users?page=1&pageSize=10
+     * 分页查询系统用户列表。
      *
      * @param queryDTO 查询条件
-     * @return 管理员分页列表
+     * @return 系统用户分页列表
      */
     @GetMapping
     public Result<PageResult<SysUserListVO>> getSysUserPage(@Valid @ModelAttribute SysUserQueryDTO queryDTO) {

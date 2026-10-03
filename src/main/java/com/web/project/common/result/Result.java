@@ -16,38 +16,29 @@ public record Result<T>(
 
     /**
      * 请求成功，没有返回数据
-     *
-     * Void 表示这个 Result 不携带具体数据
      */
     public static Result<Void> success() {
-
         return new Result<>(200, null, null);
     }
 
     /**
      * 请求成功，并返回数据
-     *
-     * <T> 表示这是一个泛型方法，
-     * 传入什么类型的数据，返回的 Result 就是什么类型
      */
     public static <T> Result<T> success(T data) {
-
         return new Result<>(200, null, data);
     }
 
     /**
-     * 请求失败，默认使用 500 状态码
+     * 请求失败，默认使用业务码 500；HTTP 状态由调用边界设置。
      */
     public static <T> Result<T> error(String msg) {
-
         return new Result<>(500, msg, null);
     }
 
     /**
-     * 请求失败，并允许自定义状态码
+     * 请求失败，使用指定的业务错误码；HTTP 状态由调用边界设置。
      */
     public static <T> Result<T> error(int code, String msg) {
-
         return new Result<>(code, msg, null);
     }
 }

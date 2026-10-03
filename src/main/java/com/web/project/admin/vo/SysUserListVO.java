@@ -3,13 +3,13 @@ package com.web.project.admin.vo;
 import java.time.LocalDateTime;
 
 /**
- * 管理员列表返回数据。
+ * 系统用户列表返回数据。
  *
  * 不包含 password，避免密码密文被返回给前端。
  *
- * @param id        管理员 ID
+ * @param id        系统用户 ID
  * @param username  登录账号
- * @param nickname  管理员昵称
+ * @param nickname  系统用户昵称
  * @param status    状态：0禁用，1正常
  * @param createdAt 创建时间
  * @param updatedAt 更新时间

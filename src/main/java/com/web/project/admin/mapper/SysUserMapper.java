@@ -7,36 +7,40 @@ import org.apache.ibatis.annotations.Param;
 import java.util.List;
 
 /**
- * 后台管理员数据库操作接口。
+ * 系统用户数据库访问接口。
  */
 @Mapper
-public  interface SysUserMapper {
+public interface SysUserMapper {
     /**
-     * 根据登录账号查询管理员。
+     * 根据登录账号查询系统用户。
      */
     SysUser selectByUsername(@Param("username") String username);
 
     /**
-     * 根据管理员 ID 查询管理员。
+     * 根据系统用户 ID 查询账号。
      */
     SysUser selectById(@Param("id") Long id);
 
     /**
-     * 查询符合条件的管理员总数。
+     * 查询符合条件的系统用户总数。
      */
     long countByCondition(
-            @Param("keyword") String keyword, //账号或昵称关键词
-            @Param("status") Integer status // 管理员状态
+            @Param("keyword") String keyword,
+            @Param("status") Integer status
     );
 
     /**
-     * 分页查询管理员列表。
+     * 分页查询系统用户列表；不读取密码密文。
+     *
+     * @param keyword 账号或昵称的模糊搜索关键词
+     * @param status 账号状态；null 表示不筛选
+     * @param offset 从 0 开始的查询偏移量
+     * @param pageSize 当前页数量
      */
     List<SysUser> selectPageByCondition(
-            @Param("keyword") String keyword, //账号或昵称关键词
-            @Param("status") Integer status, //管理员状态
-            @Param("offset") long offset, //从第几条数据开始查询
-            @Param("pageSize") int pageSize //本次查询多少条
+            @Param("keyword") String keyword,
+            @Param("status") Integer status,
+            @Param("offset") long offset,
+            @Param("pageSize") int pageSize
     );
 }
-

@@ -6,31 +6,20 @@ import lombok.Setter;
 import java.time.LocalDateTime;
 
 /**
- * 后台管理员实体类。
- *
- * 实体类中的属性与 sys_user 数据表字段对应。
+ * 系统用户账号，对应 sys_user 表。
  */
 @Getter
 @Setter
 public class SysUser {
-    /**
-     * 管理员ID。
-     */
     private Long id;
 
-    /**
-     * 登录账号。
-     */
     private String username;
 
     /**
-     * 加密后的登录密码。
+     * BCrypt 密码哈希，不作为接口返回数据。
      */
     private String password;
 
-    /**
-     * 管理员昵称。
-     */
     private String nickname;
 
     /**
@@ -38,13 +27,7 @@ public class SysUser {
      */
     private Integer status;
 
-    /**
-     * 创建时间。
-     */
     private LocalDateTime createdAt;
 
-    /**
-     * 更新时间。
-     */
     private LocalDateTime updatedAt;
 }

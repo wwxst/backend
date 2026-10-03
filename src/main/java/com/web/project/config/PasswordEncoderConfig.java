@@ -8,13 +8,11 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 /**
  * 密码编码器配置。
  *
- * 用于密码加密以及登录时的密码比对。
+ * 两类账号共用 BCrypt 密码哈希与凭据验证。
  */
 @Configuration
 public class PasswordEncoderConfig {
     /**
-     * 将 PasswordEncoder 对象交给 Spring 管理。
-     *
      * @return BCrypt 密码编码器
      */
     @Bean

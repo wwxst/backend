@@ -16,18 +16,14 @@ import org.springframework.web.ErrorResponse;
 /**
  * 全局异常处理器。
  *
- * Controller或Service抛出异常后，
- * 统一转换为Result格式返回给前端。
+ * 将业务与框架异常转换为 Result，保留 HTTP 语义并隔离内部诊断信息。
  */
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     /**
-     * 处理@RequestBody参数校验异常。
-     *
-     * 例如：
-     * 账号为空、密码长度不足。
+     * 处理请求体参数校验异常。
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Result<Void>> handleMethodArgumentNotValidException(
@@ -40,10 +36,7 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * 处理@ModelAttribute参数校验异常。
-     *
-     * 例如：
-     * page小于1、pageSize超过100。
+     * 处理查询参数绑定与校验异常。
      */
     @ExceptionHandler(BindException.class)
     public ResponseEntity<Result<Void>> handleBindException(BindException exception) {
@@ -55,9 +48,6 @@ public class GlobalExceptionHandler {
 
     /**
      * 处理请求体无法读取的异常。
-     *
-     * 例如：
-     * JSON格式错误、字段类型错误、日期格式错误。
      */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<Result<Void>> handleInvalidRequest(
@@ -73,13 +63,13 @@ public class GlobalExceptionHandler {
 
     /**
      * 处理自定义业务异常。
-     *
-     * 例如：
-     * 登录凭据错误、账号已停用。
      */
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<Result<Void>> handleBusinessException(BusinessException exception) {
         ErrorCode errorCode = exception.getErrorCode();
+        if (errorCode.getHttpStatus().is5xxServerError()) {
+            logSystemException(exception);
+        }
         Result<Void> result = Result.error(errorCode.getCode(), exception.getMessage());
 
         return ResponseEntity.status(errorCode.getHttpStatus()).body(result);
@@ -88,7 +78,7 @@ public class GlobalExceptionHandler {
     /**
      * 处理没有被单独处理的系统异常。
      *
-     * 完整异常只记录到服务器日志，
+     * 服务器日志仅记录异常类型和调用栈，避免异常消息泄露敏感数据；
      * 不向前端暴露数据库、代码路径等内部信息。
      */
     @ExceptionHandler(Exception.class)
@@ -102,7 +92,7 @@ public class GlobalExceptionHandler {
                             ErrorCode.BAD_REQUEST.getDefaultMessage()));
         }
 
-        log.error("服务器内部异常", exception);
+        logSystemException(exception);
 
         Result<Void> result = Result.error(
                 ErrorCode.INTERNAL_SERVER_ERROR.getCode(),
@@ -110,6 +100,18 @@ public class GlobalExceptionHandler {
         );
 
         return ResponseEntity.status(ErrorCode.INTERNAL_SERVER_ERROR.getHttpStatus()).body(result);
+    }
+
+    private void logSystemException(Exception exception) {
+        // 保留原因链的诊断信息，底层异常消息可能包含 SQL 参数或凭据，因此不写入日志。
+        StringBuilder diagnostics = new StringBuilder();
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            diagnostics.append(cause.getClass().getName()).append('\n');
+            for (StackTraceElement frame : cause.getStackTrace()) {
+                diagnostics.append("\tat ").append(frame).append('\n');
+            }
+        }
+        log.error("服务器内部异常，类型和调用栈：\n{}", diagnostics);
     }
 
     /**

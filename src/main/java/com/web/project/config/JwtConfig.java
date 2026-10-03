@@ -1,9 +1,12 @@
 package com.web.project.config;
 
+import com.web.project.auth.model.TokenType;
 import com.web.project.config.properties.JwtProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.*;
 
@@ -12,12 +15,7 @@ import javax.crypto.spec.SecretKeySpec;
 import java.util.Base64;
 
 /**
- * JWT 配置类。
- *
- * 负责创建：
- * 1. JWT 签名密钥
- * 2. JWT 编码器
- * 3. JWT 解码器
+ * JWT 签名与解码配置；Access 和 Refresh 共用密钥，各自限制允许的 Token 类型。
  */
 @Configuration
 @EnableConfigurationProperties(JwtProperties.class)
@@ -33,7 +31,6 @@ public class JwtConfig {
         }
         byte[] secretBytes;
         try {
-            // 将 Base64 字符串还原成原始字节
             secretBytes = Base64.getDecoder().decode(jwtProperties.secret());
         } catch (IllegalArgumentException exception) {
             throw new IllegalStateException(
@@ -42,30 +39,21 @@ public class JwtConfig {
             );
         }
 
-        /*
-         * HS256 建议至少使用 32 字节，也就是 256 位密钥。
-         */
+        // HS256 要求至少 256 位密钥；无效配置在启动时拒绝。
         if (secretBytes.length < 32) {
             throw new IllegalStateException(
                     "app.jwt.secret 解码后不能少于32字节"
             );
         }
 
-        return new SecretKeySpec(
-                secretBytes,
-                "HmacSHA256"
-        );
+        return new SecretKeySpec(secretBytes, "HmacSHA256");
     }
 
     /**
-     * JWT 编码器。
-     *
-     * 登录成功后，使用它生成并签名 Token。
+     * 使用 HS256 签名的 JWT 编码器。
      */
     @Bean
-    public JwtEncoder jwtEncoder(
-            SecretKey jwtSecretKey
-    ) {
+    public JwtEncoder jwtEncoder(SecretKey jwtSecretKey) {
         return NimbusJwtEncoder
                 .withSecretKey(jwtSecretKey)
                 .algorithm(MacAlgorithm.HS256)
@@ -73,31 +61,59 @@ public class JwtConfig {
     }
 
     /**
-     * JWT 解码器。
+     * 资源服务器使用的 Access Token 解码器。
      *
-     * 前端携带 Token 访问接口时，
-     * Spring Security 使用它验证 Token。
+     * 校验签名、issuer、标准时间字段，并拒绝 tokenType != access 的 Token。
      */
     @Bean
     public JwtDecoder jwtDecoder(
             SecretKey jwtSecretKey,
             JwtProperties jwtProperties
     ) {
-        NimbusJwtDecoder jwtDecoder =
-                NimbusJwtDecoder
-                        .withSecretKey(jwtSecretKey)
-                        .macAlgorithm(MacAlgorithm.HS256)
-                        .build();
+        return buildDecoder(jwtSecretKey, jwtProperties, TokenType.ACCESS);
+    }
 
-        /*
-         * 校验 Token 的签发者和标准时间字段。
-         * 包括 iss、exp、nbf 等。
-         */
-        jwtDecoder.setJwtValidator(
-                JwtValidators.createDefaultWithIssuer(
-                        jwtProperties.issuer()
-                )
+    /**
+     * 独立的 Refresh Token 校验入口。
+     *
+     * 只接受 tokenType=refresh 的 Token，供 Refresh 接口使用。
+     */
+    @Bean
+    public RefreshTokenDecoder refreshTokenDecoder(
+            SecretKey jwtSecretKey,
+            JwtProperties jwtProperties
+    ) {
+        return new RefreshTokenDecoder(
+                buildDecoder(jwtSecretKey, jwtProperties, TokenType.REFRESH)
         );
+    }
+
+    /**
+     * 按指定 Token 类型构建解码器。
+     *
+     * @param jwtSecretKey  签名密钥
+     * @param jwtProperties JWT 配置
+     * @param tokenType     允许的 Token 类型
+     * @return 配置好校验器的解码器
+     */
+    private JwtDecoder buildDecoder(
+            SecretKey jwtSecretKey,
+            JwtProperties jwtProperties,
+            TokenType tokenType
+    ) {
+        NimbusJwtDecoder jwtDecoder = NimbusJwtDecoder
+                .withSecretKey(jwtSecretKey)
+                .macAlgorithm(MacAlgorithm.HS256)
+                .build();
+
+        // 两种 Token 都验证签发者与时间字段，再按入口隔离用途。
+        OAuth2TokenValidator<Jwt> validator =
+                new DelegatingOAuth2TokenValidator<>(
+                        JwtValidators.createDefaultWithIssuer(jwtProperties.issuer()),
+                        new TokenTypeValidator(tokenType)
+                );
+
+        jwtDecoder.setJwtValidator(validator);
 
         return jwtDecoder;
     }

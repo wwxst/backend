@@ -6,7 +6,7 @@
 
 <mapper namespace="com.web.project.admin.mapper.SysUserMapper">
 
-    <!-- 管理员表的公共查询字段 -->
+    <!-- 凭据查询需要密码密文；列表查询使用下方的安全字段集。 -->
     <sql id="SysUserColumns">
         id,
         username,
@@ -17,15 +17,17 @@
         updated_at
     </sql>
 
-    <!--
-        管理员列表公共查询条件。
+    <!-- 系统用户列表不读取密码密文。 -->
+    <sql id="SysUserSafeColumns">
+        id,
+        username,
+        nickname,
+        status,
+        created_at,
+        updated_at
+    </sql>
 
-        keyword 不为空时：
-        同时搜索 username 和 nickname。
-
-        status 不为空时：
-        按管理员状态筛选。
-    -->
+    <!-- 账号或昵称模糊搜索；未提供状态时查询全部状态。 -->
     <sql id="SysUserConditions">
         <where>
             <if test="keyword != null and keyword != ''">
@@ -41,7 +43,7 @@
         </where>
     </sql>
 
-    <!-- 根据账号查询管理员 -->
+    <!-- 根据登录账号查询系统用户 -->
     <select id="selectByUsername"
             resultType="com.web.project.admin.entity.SysUser">
         SELECT
@@ -51,7 +53,7 @@
         LIMIT 1
     </select>
 
-    <!-- 根据 ID 查询管理员 -->
+    <!-- 根据 ID 查询系统用户 -->
     <select id="selectById"
             resultType="com.web.project.admin.entity.SysUser">
         SELECT
@@ -69,11 +71,11 @@
         <include refid="SysUserConditions"/>
     </select>
 
-    <!-- 分页查询管理员列表 -->
+    <!-- 分页查询系统用户列表 -->
     <select id="selectPageByCondition"
             resultType="com.web.project.admin.entity.SysUser">
         SELECT
-        <include refid="SysUserColumns"/>
+        <include refid="SysUserSafeColumns"/>
         FROM sys_user
         <include refid="SysUserConditions"/>
         ORDER BY id DESC

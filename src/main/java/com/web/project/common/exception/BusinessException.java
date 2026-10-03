@@ -22,7 +22,6 @@ public class BusinessException extends RuntimeException {
      * @param errorCode 错误码枚举
      */
     public BusinessException(ErrorCode errorCode) {
-        // 暂时使用默认中文提示作为异常消息
         super(errorCode.getDefaultMessage());
         this.errorCode = errorCode;
     }
@@ -30,13 +29,29 @@ public class BusinessException extends RuntimeException {
     /**
      * 使用统一错误码，并自定义本次提示。
      *
-     * 仅在提示需要包含动态数据时使用。
+     * 自定义提示必须是面向客户端的业务消息，不包含内部或敏感信息。
      */
     public BusinessException(
             ErrorCode errorCode,
             String message
     ) {
         super(message);
+        this.errorCode = errorCode;
+    }
+
+    /**
+     * 转换底层异常，并保留原因链；客户端只接收错误码对应的业务提示。
+     */
+    public BusinessException(ErrorCode errorCode, Throwable cause) {
+        super(errorCode.getDefaultMessage(), cause);
+        this.errorCode = errorCode;
+    }
+
+    /**
+     * 使用自定义业务提示转换底层异常，并保留原因链。
+     */
+    public BusinessException(ErrorCode errorCode, String message, Throwable cause) {
+        super(message, cause);
         this.errorCode = errorCode;
     }
 }

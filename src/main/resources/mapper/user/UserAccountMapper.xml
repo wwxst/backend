@@ -7,14 +7,18 @@
 <mapper namespace="com.web.project.user.mapper.UserAccountMapper">
 
     <!--
-        登录和查询详情需要的完整字段。
-        包含 password，只能用于后端身份验证。
+        登录、鉴权和详情查询需要的完整字段。
+        包含 password 和 password_version，只能用于后端身份验证。
     -->
     <sql id="UserAccountColumns">
         id,
-        username,
+        user_no,
+        phone,
+        email,
         password,
+        password_version,
         nickname,
+        avatar,
         status,
         created_at,
         updated_at
@@ -26,7 +30,9 @@
     -->
     <sql id="UserAccountSafeColumns">
         id,
-        username,
+        user_no,
+        phone,
+        email,
         nickname,
         status,
         created_at,
@@ -38,7 +44,9 @@
         <where>
             <if test="keyword != null and keyword != ''">
                 AND (
-                username LIKE CONCAT('%', #{keyword}, '%')
+                user_no LIKE CONCAT('%', #{keyword}, '%')
+                OR phone LIKE CONCAT('%', #{keyword}, '%')
+                OR email LIKE CONCAT('%', #{keyword}, '%')
                 OR nickname LIKE CONCAT('%', #{keyword}, '%')
                 )
             </if>
@@ -49,16 +57,6 @@
         </where>
     </sql>
 
-    <!-- 根据用户名查询用户，供登录使用 -->
-    <select id="selectByUsername"
-            resultType="com.web.project.user.entity.UserAccount">
-        SELECT
-        <include refid="UserAccountColumns"/>
-        FROM user_account
-        WHERE username = #{username}
-        LIMIT 1
-    </select>
-
     <!-- 根据 ID 查询用户 -->
     <select id="selectById"
             resultType="com.web.project.user.entity.UserAccount">
@@ -68,6 +66,65 @@
         WHERE id = #{id}
         LIMIT 1
     </select>
+
+    <!-- 根据规范化手机号查询用户，供注册、登录和验证码场景资格判断使用 -->
+    <select id="selectByPhone"
+            resultType="com.web.project.user.entity.UserAccount">
+        SELECT
+        <include refid="UserAccountColumns"/>
+        FROM user_account
+        WHERE phone = #{phone}
+        LIMIT 1
+    </select>
+
+    <!-- 根据规范化邮箱查询用户 -->
+    <select id="selectByEmail"
+            resultType="com.web.project.user.entity.UserAccount">
+        SELECT
+        <include refid="UserAccountColumns"/>
+        FROM user_account
+        WHERE email = #{email}
+        LIMIT 1
+    </select>
+
+    <!-- 创建用户账号，主键写回实体 -->
+    <insert id="insert"
+            parameterType="com.web.project.user.entity.UserAccount"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT INTO user_account (user_no, phone, email, password, nickname)
+        VALUES (#{userNo}, #{phone}, #{email}, #{password}, #{nickname})
+    </insert>
+
+    <!-- 更新密码并递增密码版本 -->
+    <update id="updatePassword">
+        UPDATE user_account
+        SET password         = #{password},
+            password_version = password_version + 1
+        WHERE id = #{id}
+    </update>
+
+    <!-- 更新昵称和头像 -->
+    <update id="updateProfile">
+        UPDATE user_account
+        SET nickname = #{nickname},
+            avatar   = #{avatar}
+        WHERE id = #{id}
+    </update>
+
+    <!-- 更新手机号 -->
+    <update id="updatePhone">
+        UPDATE user_account
+        SET phone = #{phone}
+        WHERE id = #{id}
+    </update>
+
+    <!-- 更新邮箱 -->
+    <update id="updateEmail">
+        UPDATE user_account
+        SET email = #{email}
+        WHERE id = #{id}
+    </update>
 
     <!-- 查询符合条件的用户总数 -->
     <select id="countByCondition"

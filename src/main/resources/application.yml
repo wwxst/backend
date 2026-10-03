@@ -12,6 +12,15 @@ spring:
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:123456}
 
+  data:
+    redis:
+      # 本地开发默认连接本机 Redis；部署环境通过 REDIS_HOST、REDIS_PORT、REDIS_DATABASE 覆盖
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      database: ${REDIS_DATABASE:0}
+      # REDIS_PASSWORD 只填写 Redis 密码，不填写连接 URI
+      password: ${REDIS_PASSWORD:}
+
 mybatis:
   # Mapper XML 文件的位置
   mapper-locations: classpath*:mapper/**/*.xml
@@ -21,11 +30,14 @@ mybatis:
 
 app:
   jwt:
-    # Token 签发者，用于确认 Token 是不是本项目签发的
+    # 两类 Token 的签发者；解码时必须匹配
     issuer: web-project
 
     # 本地开发默认值；部署环境通过 JWT_SECRET 覆盖
     secret: ${JWT_SECRET:YXRsYXMtYmFja2VuZC1sb2NhbC1kZXYta3ktMjAyNi0wOS0wOQ==}
 
-    # Access Token 有效期，2h 表示两小时
-    access-token-expiration: 24h
+    # Access Token 有效期，30m 表示 30 分钟
+    access-token-expiration: 30m
+
+    # Refresh Token 有效期，30d 表示 30 天
+    refresh-token-expiration: 30d

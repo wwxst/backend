@@ -20,19 +20,33 @@ public class UserAccount {
     private Long id;
 
     /**
-     * 登录账号。
+     * 对外展示号码，不参与登录和鉴权。
      */
-    private String username;
+    private String userNo;
 
     /**
-     * BCrypt 加密后的密码。
+     * 11 位中国大陆手机号；未绑定时为 null。
+     */
+    private String phone;
+
+    /**
+     * 规范化为小写的邮箱；未绑定时为 null。
+     */
+    private String email;
+
+    /**
+     * BCrypt 加密后的密码；验证码注册的账号可以为空。
      */
     private String password;
 
     /**
-     * 用户昵称。
+     * 密码版本，修改或重置密码时递增。
      */
+    private Long passwordVersion;
+
     private String nickname;
+
+    private String avatar;
 
     /**
      * 用户状态：
@@ -40,13 +54,7 @@ public class UserAccount {
      */
     private Integer status;
 
-    /**
-     * 创建时间。
-     */
     private LocalDateTime createdAt;
 
-    /**
-     * 更新时间。
-     */
     private LocalDateTime updatedAt;
 }

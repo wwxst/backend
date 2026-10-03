@@ -23,38 +23,36 @@ public class SecurityConfig {
             RestAccessDeniedHandler accessDeniedHandler
     ) throws Exception {
         http
-                // 前后端分离接口暂时关闭 CSRF
+                // 资源接口通过 Bearer Token 认证，不使用浏览器自动携带的 Cookie/Session。
                 .csrf(AbstractHttpConfigurer::disable)
 
-                // 关闭 Spring Security 默认登录页面
                 .formLogin(AbstractHttpConfigurer::disable)
 
-                // 关闭浏览器弹出的 Basic 登录框
                 .httpBasic(AbstractHttpConfigurer::disable)
 
-                /*
-                 * JWT 不使用服务器 Session 保存登录状态。
-                 * 每次请求都通过 Token 判断身份。
-                 */
+                // HTTP 认证保持无状态；Redis 会话仅用于 Refresh 校验与退出。
                 .sessionManagement(session -> session
-                        .sessionCreationPolicy(
-                                SessionCreationPolicy.STATELESS
-                        )
+                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
 
                 .authorizeHttpRequests(authorize -> authorize
 
-                        // 管理员登录接口公开访问
+                        // 系统用户登录和刷新接口公开访问
                         .requestMatchers(
                                 HttpMethod.POST,
-                                "/api/sys-user/auth/login"
+                                "/api/sys-user/auth/login",
+                                "/api/sys-user/auth/refresh"
                         )
                         .permitAll()
 
-                        // 普通用户登录接口公开访问
+                        // 普通用户注册、登录、刷新、发送验证码和重置密码接口公开访问
                         .requestMatchers(
                                 HttpMethod.POST,
-                                "/api/user/auth/login"
+                                "/api/user/auth/login",
+                                "/api/user/auth/refresh",
+                                "/api/user/auth/register",
+                                "/api/user/auth/send-code",
+                                "/api/user/auth/reset-password"
                         )
                         .permitAll()
 
@@ -66,34 +64,19 @@ public class SecurityConfig {
                         .requestMatchers("/api/user/**")
                         .hasAuthority("SCOPE_user")
 
-                        // 其他接口暂时要求登录
                         .anyRequest()
                         .authenticated()
                 )
-                /*
-                 * 统一处理 Spring Security 的 401 和 403。
-                 */
+                // 授权拒绝与 Bearer 认证失败都返回统一 Result，避免框架默认错误页面。
                 .exceptionHandling(exception -> exception
-                        .authenticationEntryPoint(
-                                authenticationEntryPoint
-                        )
-                        .accessDeniedHandler(
-                                accessDeniedHandler
-                        )
+                        .authenticationEntryPoint(authenticationEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler)
                 )
 
-                /*
-                 * 开启 Spring Security 的 JWT Bearer 认证。
-                 * 它会调用我们创建的 JwtDecoder。
-                 */
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(Customizer.withDefaults())
-                        .authenticationEntryPoint(
-                                authenticationEntryPoint
-                        )
-                        .accessDeniedHandler(
-                                accessDeniedHandler
-                        )
+                        .authenticationEntryPoint(authenticationEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler)
                 );
 
         return http.build();

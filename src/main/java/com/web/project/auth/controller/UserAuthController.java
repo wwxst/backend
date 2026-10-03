@@ -1,17 +1,20 @@
 package com.web.project.auth.controller;
 
+import com.web.project.auth.dto.RefreshTokenDTO;
+import com.web.project.auth.dto.ResetPasswordDTO;
+import com.web.project.auth.dto.SendCodeDTO;
 import com.web.project.auth.dto.UserLoginDTO;
+import com.web.project.auth.dto.UserRegisterDTO;
+import com.web.project.auth.model.AccountType;
 import com.web.project.auth.service.UserAuthService;
-import com.web.project.auth.vo.UserLoginVO;
-import com.web.project.common.error.ErrorCode;
-import com.web.project.common.exception.BusinessException;
+import com.web.project.auth.util.JwtClaims;
+import com.web.project.auth.vo.AccessTokenVO;
+import com.web.project.auth.vo.TokenPairVO;
 import com.web.project.common.result.Result;
-import com.web.project.user.vo.UserInfoVO;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -19,6 +22,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 普通用户认证接口。
+ *
+ * 注册、登录、刷新、发送验证码和重置密码允许匿名访问；
+ * 换绑场景共用发送验证码接口，但必须携带有效的普通用户 Access Token。
  */
 @RestController
 @RequestMapping("/api/user/auth")
@@ -28,51 +34,81 @@ public class UserAuthController {
     private final UserAuthService userAuthService;
 
     /**
-     * 普通用户登录。
+     * 发送验证码。
      */
-    @PostMapping("/login")
-    public Result<UserLoginVO> login(
-            @Valid @RequestBody UserLoginDTO loginDTO
-    ) {
-        UserLoginVO loginVO =
-                userAuthService.login(loginDTO);
-
-        return Result.success(loginVO);
-    }
-
-    /**
-     * 获取当前登录用户信息。
-     */
-    @GetMapping("/me")
-    public Result<UserInfoVO> getCurrentUser(
+    @PostMapping("/send-code")
+    public Result<Void> sendCode(
+            @Valid @RequestBody SendCodeDTO sendCodeDTO,
             @AuthenticationPrincipal Jwt jwt
     ) {
-        Long userId = parseUserId(jwt);
-
-        UserInfoVO userInfoVO =
-                userAuthService.getCurrentUser(userId);
-
-        return Result.success(userInfoVO);
+        userAuthService.sendCode(sendCodeDTO, currentUserId(jwt));
+        return Result.success();
     }
 
     /**
-     * 从 JWT 的 sub 字段中读取用户 ID。
+     * 注册并返回双 Token。
      */
-    private Long parseUserId(Jwt jwt) {
-        String subject = jwt.getSubject();
+    @PostMapping("/register")
+    public Result<TokenPairVO> register(
+            @Valid @RequestBody UserRegisterDTO registerDTO
+    ) {
+        return Result.success(userAuthService.register(registerDTO));
+    }
 
-        if (subject == null) {
-            throw new BusinessException(
-                    ErrorCode.LOGIN_STATUS_INVALID
-            );
+    /**
+     * 密码或验证码登录。
+     */
+    @PostMapping("/login")
+    public Result<TokenPairVO> login(
+            @Valid @RequestBody UserLoginDTO loginDTO
+    ) {
+        return Result.success(userAuthService.login(loginDTO));
+    }
+
+    /**
+     * 使用 Refresh Token 换取新的 Access Token。
+     */
+    @PostMapping("/refresh")
+    public Result<AccessTokenVO> refresh(
+            @Valid @RequestBody RefreshTokenDTO refreshTokenDTO
+    ) {
+        return Result.success(userAuthService.refresh(refreshTokenDTO));
+    }
+
+    /**
+     * 退出登录，删除当前会话。
+     */
+    @PostMapping("/logout")
+    public Result<Void> logout(@AuthenticationPrincipal Jwt jwt) {
+        userAuthService.logout(JwtClaims.sessionId(jwt));
+        return Result.success();
+    }
+
+    /**
+     * 忘记密码。
+     */
+    @PostMapping("/reset-password")
+    public Result<Void> resetPassword(
+            @Valid @RequestBody ResetPasswordDTO resetPasswordDTO
+    ) {
+        userAuthService.resetPassword(resetPasswordDTO);
+        return Result.success();
+    }
+
+    /**
+     * 读取当前登录的普通用户 ID。
+     *
+     * 发送验证码接口允许匿名访问，只有携带普通用户 Access Token 时才返回用户 ID，
+     * 供换绑场景校验目标归属。
+     */
+    private Long currentUserId(Jwt jwt) {
+        if (jwt == null
+                || !AccountType.USER.name().equals(
+                        jwt.getClaimAsString("accountType")
+                )) {
+            return null;
         }
 
-        try {
-            return Long.valueOf(subject);
-        } catch (NumberFormatException exception) {
-            throw new BusinessException(
-                    ErrorCode.LOGIN_STATUS_INVALID
-            );
-        }
+        return JwtClaims.accountId(jwt);
     }
 }

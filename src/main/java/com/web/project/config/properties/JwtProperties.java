@@ -8,18 +8,36 @@ import java.time.Duration;
 /**
  * JWT 配置属性。
  *
- * Spring 会把 application.yml 中 app.jwt 下面的配置，
- * 自动绑定到这个 record 中。
+ * issuer 和有效期在配置绑定时校验，无效配置使应用启动失败。
  *
- * @param issuer                Token 签发者
- * @param secret                Base64 格式的签名密钥
- * @param accessTokenExpiration Access Token 有效期
+ * @param issuer                 Token 签发者
+ * @param secret                 Base64 格式的签名密钥
+ * @param accessTokenExpiration  Access Token 有效期
+ * @param refreshTokenExpiration Refresh Token 有效期
  */
 @ConfigurationProperties(prefix = "app.jwt")
 public record JwtProperties(
         String issuer,
         String secret,
-        Duration accessTokenExpiration
+        Duration accessTokenExpiration,
+        Duration refreshTokenExpiration
 ) {
+    public JwtProperties {
+        if (issuer == null || issuer.isBlank()) {
+            throw new IllegalArgumentException("必须配置 app.jwt.issuer");
+        }
+        requirePositiveDuration(accessTokenExpiration, "app.jwt.access-token-expiration");
+        requirePositiveDuration(refreshTokenExpiration, "app.jwt.refresh-token-expiration");
+    }
 
+    @Override
+    public String toString() {
+        return "JwtProperties[issuer=" + issuer + ", secret=redacted]";
+    }
+
+    private static void requirePositiveDuration(Duration duration, String property) {
+        if (duration == null || duration.compareTo(Duration.ofSeconds(1)) < 0) {
+            throw new IllegalArgumentException(property + " 必须至少为 1 秒");
+        }
+    }
 }
