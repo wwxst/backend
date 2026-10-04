@@ -12,6 +12,7 @@
         username,
         password,
         nickname,
+        avatar,
         status,
         created_at,
         updated_at
@@ -22,6 +23,7 @@
         id,
         username,
         nickname,
+        avatar,
         status,
         created_at,
         updated_at
@@ -78,8 +80,53 @@
         <include refid="SysUserSafeColumns"/>
         FROM sys_user
         <include refid="SysUserConditions"/>
-        ORDER BY id DESC
+        <choose>
+            <when test="createdAtOrder == 'asc'">ORDER BY created_at ASC, id ASC</when>
+            <when test="createdAtOrder == 'desc'">ORDER BY created_at DESC, id DESC</when>
+            <otherwise>ORDER BY id DESC</otherwise>
+        </choose>
         LIMIT #{offset}, #{pageSize}
     </select>
+
+    <!-- 修改系统用户状态。 -->
+    <update id="updateStatus">
+        UPDATE sys_user
+        SET status = #{status}
+        WHERE id = #{id}
+    </update>
+
+    <!-- 新增系统用户。 -->
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO sys_user (username, password, nickname, status)
+        VALUES (#{username}, #{password}, #{nickname}, #{status})
+    </insert>
+
+    <!-- 编辑系统用户基本资料；状态由独立接口维护。 -->
+    <update id="update">
+        UPDATE sys_user
+        SET username = #{username},
+            nickname = #{nickname}
+        WHERE id = #{id}
+    </update>
+
+    <!-- 管理员重置系统用户密码。 -->
+    <update id="updatePassword">
+        UPDATE sys_user
+        SET password = #{password}
+        WHERE id = #{id}
+    </update>
+
+    <!-- 更新系统用户头像。 -->
+    <update id="updateAvatar">
+        UPDATE sys_user
+        SET avatar = #{avatar}
+        WHERE id = #{id}
+    </update>
+
+    <!-- 删除系统用户。 -->
+    <delete id="deleteById">
+        DELETE FROM sys_user
+        WHERE id = #{id}
+    </delete>
 
 </mapper>

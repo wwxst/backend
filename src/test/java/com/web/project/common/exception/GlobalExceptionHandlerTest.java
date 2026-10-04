@@ -61,6 +61,18 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void invalidCreatedAtOrderReturnsBadRequestWithoutCallingService() throws Exception {
+        for (String path : List.of("/api/sys-user/sys-users", "/api/sys-user/users")) {
+            for (String order : List.of("", "ASC", "invalid", "asc;DROP TABLE sys_user")) {
+                mvc.perform(get(path).param("createdAtOrder", order))
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.code").value(40000));
+            }
+        }
+        verifyNoInteractions(users, sysUsers);
+    }
+
+    @Test
     void wrongMethodPreservesMethodNotAllowedAndAllowHeader() throws Exception {
         mvc.perform(delete("/api/sys-user/users"))
                 .andExpect(status().isMethodNotAllowed()).andExpect(header().exists("Allow"))

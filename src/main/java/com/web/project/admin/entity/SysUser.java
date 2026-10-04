@@ -22,6 +22,8 @@ public class SysUser {
 
     private String nickname;
 
+    private String avatar;
+
     /**
      * 账号状态：1正常，0禁用。
      */

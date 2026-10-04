@@ -13,6 +13,7 @@ CREATE TABLE sys_user
     username   VARCHAR(20)  NOT NULL COMMENT '登录账号',
     password   VARCHAR(100) NOT NULL COMMENT '加密后的登录密码',
     nickname   VARCHAR(30)  NOT NULL COMMENT '系统用户昵称',
+    avatar     VARCHAR(255) DEFAULT NULL COMMENT '头像地址',
     status     TINYINT      NOT NULL DEFAULT 1 COMMENT '状态：1正常，0禁用',
     created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',

@@ -3,6 +3,7 @@ package com.web.project.admin.dto;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.Setter;
@@ -44,4 +45,10 @@ public class SysUserQueryDTO {
     @Min(value = 0, message = "管理员状态不正确")
     @Max(value = 1, message = "管理员状态不正确")
     private Integer status;
+
+    /**
+     * 创建时间排序方向；不传时按 ID 倒序。
+     */
+    @Pattern(regexp = "asc|desc", message = "创建时间排序方向只能为asc或desc")
+    private String createdAtOrder;
 }

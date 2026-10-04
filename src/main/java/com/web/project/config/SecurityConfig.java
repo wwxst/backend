@@ -37,6 +37,10 @@ public class SecurityConfig {
 
                 .authorizeHttpRequests(authorize -> authorize
 
+                        // 头像由页面直接以图片资源读取，地址本身不包含敏感信息。
+                        .requestMatchers("/uploads/**")
+                        .permitAll()
+
                         // 系统用户登录和刷新接口公开访问
                         .requestMatchers(
                                 HttpMethod.POST,

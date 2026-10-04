@@ -36,11 +36,43 @@ public interface SysUserMapper {
      * @param status 账号状态；null 表示不筛选
      * @param offset 从 0 开始的查询偏移量
      * @param pageSize 当前页数量
+     * @param createdAtOrder 创建时间排序方向；null 表示按 ID 倒序
      */
     List<SysUser> selectPageByCondition(
             @Param("keyword") String keyword,
             @Param("status") Integer status,
             @Param("offset") long offset,
-            @Param("pageSize") int pageSize
+            @Param("pageSize") int pageSize,
+            @Param("createdAtOrder") String createdAtOrder
     );
+
+    /**
+     * 修改系统用户状态。
+     */
+    int updateStatus(@Param("id") Long id, @Param("status") Integer status);
+
+    /**
+     * 新增系统用户。
+     */
+    int insert(SysUser sysUser);
+
+    /**
+     * 编辑系统用户基本资料；状态由独立接口维护。
+     */
+    int update(SysUser sysUser);
+
+    /**
+     * 更新系统用户密码。
+     */
+    int updatePassword(@Param("id") Long id, @Param("password") String password);
+
+    /**
+     * 更新系统用户头像。
+     */
+    int updateAvatar(@Param("id") Long id, @Param("avatar") String avatar);
+
+    /**
+     * 删除系统用户。
+     */
+    int deleteById(@Param("id") Long id);
 }

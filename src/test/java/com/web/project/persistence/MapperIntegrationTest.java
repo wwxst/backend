@@ -16,6 +16,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -69,7 +71,7 @@ class MapperIntegrationTest {
         assertEquals(1, userAccountMapper.updatePassword(id, "test-password-hash"));
         assertEquals(2L, userAccountMapper.selectById(id).getPasswordVersion());
         assertEquals(1L, userAccountMapper.countByCondition("123456", 1));
-        UserAccount listed = userAccountMapper.selectPageByCondition("123456", 1, 0L, 10).getFirst();
+        UserAccount listed = userAccountMapper.selectPageByCondition("123456", 1, 0L, 10, null).getFirst();
         assertEquals(id, listed.getId());
         assertNull(listed.getPassword());
         assertNull(listed.getPasswordVersion());
@@ -82,14 +84,78 @@ class MapperIntegrationTest {
     }
 
     @Test
+    void userCreatedAtSortingIsStableAcrossPages() {
+        jdbcTemplate.update("""
+                INSERT INTO user_account (user_no, nickname, status, created_at)
+                VALUES ('sort-user-new', '普通排序新', 1, '2026-10-03 12:00:00'),
+                       ('sort-user-old', '普通排序旧', 1, '2026-10-01 12:00:00'),
+                       ('sort-user-tie', '普通排序同时间', 0, '2026-10-01 12:00:00')
+                """);
+
+        assertEquals(List.of("sort-user-old", "sort-user-tie", "sort-user-new"),
+                userAccountMapper.selectPageByCondition("普通排序", null, 0L, 10, "asc")
+                        .stream().map(UserAccount::getUserNo).toList());
+        assertEquals(List.of("sort-user-new", "sort-user-tie", "sort-user-old"),
+                userAccountMapper.selectPageByCondition("普通排序", null, 0L, 10, "desc")
+                        .stream().map(UserAccount::getUserNo).toList());
+        assertEquals(List.of("sort-user-new", "sort-user-tie", "sort-user-old"),
+                userAccountMapper.selectPageByCondition("普通排序", null, 0L, 10, null)
+                        .stream().map(UserAccount::getUserNo).toList());
+        assertEquals("sort-user-tie", userAccountMapper.selectPageByCondition(
+                "普通排序", null, 1L, 1, "asc").getFirst().getUserNo());
+    }
+
+    @Test
     void sysUserListExcludesPasswordWhileCredentialLookupRetainsIt() {
         SysUser credentials = sysUserMapper.selectByUsername("admin");
         assertNotNull(credentials.getPassword());
         assertEquals(credentials.getId(), sysUserMapper.selectById(credentials.getId()).getId());
         assertEquals(1L, sysUserMapper.countByCondition("admin", 1));
-        SysUser listed = sysUserMapper.selectPageByCondition("admin", 1, 0L, 10).getFirst();
+        SysUser listed = sysUserMapper.selectPageByCondition("admin", 1, 0L, 10, null).getFirst();
         assertEquals(credentials.getId(), listed.getId());
         assertNull(listed.getPassword());
+    }
+
+    @Test
+    void sysUserCreatedAtSortingIsStableAcrossPages() {
+        jdbcTemplate.update("""
+                INSERT INTO sys_user (username, password, nickname, status, created_at)
+                VALUES ('sort-new', 'test-hash', 'sort-test', 1, '2026-10-03 12:00:00'),
+                       ('sort-old', 'test-hash', 'sort-test', 1, '2026-10-01 12:00:00'),
+                       ('sort-tie', 'test-hash', 'sort-test', 0, '2026-10-01 12:00:00')
+                """);
+
+        assertEquals(List.of("sort-old", "sort-tie", "sort-new"),
+                sysUserMapper.selectPageByCondition("sort-test", null, 0L, 10, "asc")
+                        .stream().map(SysUser::getUsername).toList());
+        assertEquals(List.of("sort-new", "sort-tie", "sort-old"),
+                sysUserMapper.selectPageByCondition("sort-test", null, 0L, 10, "desc")
+                        .stream().map(SysUser::getUsername).toList());
+        assertEquals("sort-tie", sysUserMapper.selectPageByCondition("sort-test", null, 1L, 1, "asc")
+                .getFirst().getUsername());
+        assertEquals(List.of("sort-old", "sort-new"),
+                sysUserMapper.selectPageByCondition("sort-test", 1, 0L, 10, "asc")
+                        .stream().map(SysUser::getUsername).toList());
+        assertEquals("sort-tie", sysUserMapper.selectPageByCondition("sort-test", null, 0L, 1, null)
+                .getFirst().getUsername());
+    }
+
+    @Test
+    void sysUserCrudWritesAndDeletesExpectedRows() {
+        SysUser user = new SysUser();
+        user.setUsername("crud-test-user");
+        user.setPassword("initial-hash");
+        user.setNickname("CRUD 测试");
+        user.setStatus(1);
+
+        assertEquals(1, sysUserMapper.insert(user));
+        assertNotNull(user.getId());
+        assertEquals(1, sysUserMapper.updateStatus(user.getId(), 0));
+        assertEquals(1, sysUserMapper.update(user));
+        assertEquals(1, sysUserMapper.updatePassword(user.getId(), "reset-hash"));
+        assertEquals("reset-hash", sysUserMapper.selectById(user.getId()).getPassword());
+        assertEquals(1, sysUserMapper.deleteById(user.getId()));
+        assertEquals(0, sysUserMapper.deleteById(user.getId()));
     }
 
     @Test

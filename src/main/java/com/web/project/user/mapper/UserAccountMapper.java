@@ -75,12 +75,14 @@ public interface UserAccountMapper {
      * @param status   用户状态
      * @param offset   查询起始位置
      * @param pageSize 每页数量
+     * @param createdAtOrder 创建时间排序方向；null 表示按创建时间倒序
      * @return 当前页用户数据
      */
     List<UserAccount> selectPageByCondition(
             @Param("keyword") String keyword,
             @Param("status") Integer status,
             @Param("offset") long offset,
-            @Param("pageSize") int pageSize
+            @Param("pageSize") int pageSize,
+            @Param("createdAtOrder") String createdAtOrder
     );
 }

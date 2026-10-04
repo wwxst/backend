@@ -64,7 +64,8 @@ public class UserAccountServiceImpl implements UserAccountService {
                         keyword,
                         status,
                         offset,
-                        pageSize
+                        pageSize,
+                        queryDTO.getCreatedAtOrder()
                 );
 
         // 列表只返回展示字段，密码与密码版本不进入响应。

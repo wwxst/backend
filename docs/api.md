@@ -168,8 +168,69 @@ Authorization: Bearer <accessToken>
 | `pageSize` | 否 | `10` | 每页数量，范围 `1-100` |
 | `keyword` | 否 | 空 | 按账号或昵称模糊搜索，最多 30 个字符 |
 | `status` | 否 | 空 | `0` 禁用，`1` 正常；不传查询全部 |
+| `createdAtOrder` | 否 | 空 | `asc` 创建时间升序，`desc` 降序；不传按 ID 倒序。同一创建时间按 ID 同向排序 |
 
-`records` 对应 `SysUserListVO`，字段为 `id`、`username`、`nickname`、`status`、`createdAt`、`updatedAt`。不会返回密码字段。
+`records` 对应 `SysUserListVO`，字段为 `id`、`username`、`nickname`、`avatar`、`status`、`createdAt`、`updatedAt`。不会返回密码字段。
+
+### 新增系统用户
+
+```http
+POST /api/sys-user/sys-users
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+```
+
+```json
+{
+  "username": "operator",
+  "password": "password123",
+  "nickname": "运营人员",
+  "status": 1
+}
+```
+
+密码必须为 8 到 24 个字符；登录账号由数据库唯一约束保证唯一。
+
+### 编辑系统用户
+
+```http
+PUT /api/sys-user/sys-users/{id}
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+```
+
+请求体为 `username`、`nickname`，不修改状态和密码；状态通过启停用接口维护。
+
+### 上传系统用户头像
+
+```http
+POST /api/sys-user/sys-users/{id}/avatar
+Authorization: Bearer <accessToken>
+Content-Type: multipart/form-data
+```
+
+表单字段 `file` 接收 JPG、PNG 或 WEBP 文件，最大 2MB。成功响应返回更新后的系统用户数据，其中 `avatar` 为可直接展示的头像地址。
+
+### 重置系统用户密码
+
+```http
+PATCH /api/sys-user/sys-users/{id}/password
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+```
+
+```json
+{ "password": "new-password123" }
+```
+
+### 删除系统用户
+
+```http
+DELETE /api/sys-user/sys-users/{id}
+Authorization: Bearer <accessToken>
+```
+
+删除和更新目标不存在时返回 `40000`。
 
 ### 普通用户列表
 
@@ -178,7 +239,7 @@ GET /api/sys-user/users?page=1&pageSize=10&keyword=138&status=1
 Authorization: Bearer <accessToken>
 ```
 
-由系统用户访问，查询参数和分页结构与系统用户列表相同；`keyword` 最多 50 个字符，匹配用户号码、手机号、邮箱或昵称。`records` 对应 `UserAccountListVO`，字段为 `id`、`userNo`、`phone`、`email`、`nickname`、`status`、`createdAt`、`updatedAt`，不会返回密码和密码版本字段。
+由系统用户访问，查询参数为 `page`、`pageSize`、`keyword`、`status`、`createdAtOrder`，分页结构与系统用户列表相同；`keyword` 最多 50 个字符，匹配用户号码、手机号、邮箱或昵称；`createdAtOrder` 支持 `asc` 创建时间升序和 `desc` 降序，不传时按创建时间倒序。同一创建时间按 ID 同向排序。`records` 对应 `UserAccountListVO`，字段为 `id`、`userNo`、`phone`、`email`、`nickname`、`status`、`createdAt`、`updatedAt`，不会返回密码和密码版本字段。
 
 ## 渠道配置
 

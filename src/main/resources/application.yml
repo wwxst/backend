@@ -6,6 +6,11 @@ spring:
   application:
     name: web-project
 
+  servlet:
+    multipart:
+      max-file-size: 2MB
+      max-request-size: 2MB
+
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: ${DB_URL:jdbc:mysql://localhost:3306/web_project?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
@@ -29,6 +34,9 @@ mybatis:
     map-underscore-to-camel-case: true
 
 app:
+  file:
+    upload-dir: ${UPLOAD_DIR:uploads}
+
   jwt:
     # 两类 Token 的签发者；解码时必须匹配
     issuer: web-project

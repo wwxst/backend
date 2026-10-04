@@ -141,7 +141,11 @@
         <include refid="UserAccountSafeColumns"/>
         FROM user_account
         <include refid="UserAccountConditions"/>
-        ORDER BY id DESC
+        <choose>
+            <when test="createdAtOrder == 'asc'">ORDER BY created_at ASC, id ASC</when>
+            <when test="createdAtOrder == 'desc'">ORDER BY created_at DESC, id DESC</when>
+            <otherwise>ORDER BY created_at DESC, id DESC</otherwise>
+        </choose>
         LIMIT #{offset}, #{pageSize}
     </select>
 
