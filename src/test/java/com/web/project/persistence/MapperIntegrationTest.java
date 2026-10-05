@@ -8,6 +8,10 @@ import com.web.project.channel.model.AuthChannel;
 import com.web.project.channel.service.AuthChannelService;
 import com.web.project.user.entity.UserAccount;
 import com.web.project.user.mapper.UserAccountMapper;
+import com.web.project.user.dto.UpdateUserAccountDTO;
+import com.web.project.user.service.UserAccountService;
+import com.web.project.common.exception.BusinessException;
+import com.web.project.common.error.ErrorCode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,6 +45,63 @@ class MapperIntegrationTest {
     private AuthChannelService authChannelService;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @Autowired
+    private UserAccountService userAccountService;
+
+    @Test
+    void adminEditPreservesProtectedFieldsAndAllowsDisabledAccountAndContactRemoval() {
+        jdbcTemplate.update("""
+                INSERT INTO user_account (user_no, phone, email, password, password_version, nickname, avatar, status)
+                VALUES ('admin-edit-user', '13800138901', 'before-edit@example.com', 'test-hash', 7,
+                        '原昵称', '/avatar.png', 0)
+                """);
+        Long id = jdbcTemplate.queryForObject(
+                "SELECT id FROM user_account WHERE user_no = 'admin-edit-user'", Long.class);
+        UserAccount original = userAccountMapper.selectById(id);
+        for (int attempt = 0; attempt < 2; attempt++) {
+            var result = userAccountService.updateUser(id,
+                    new UpdateUserAccountDTO(" 新昵称 ", null, " AFTER-EDIT@EXAMPLE.COM "));
+            assertEquals("新昵称", result.nickname());
+            assertNull(result.phone());
+            assertEquals("after-edit@example.com", result.email());
+            assertEquals(0, result.status());
+        }
+        UserAccount stored = userAccountMapper.selectById(id);
+        assertEquals(original.getUserNo(), stored.getUserNo());
+        assertEquals(original.getPassword(), stored.getPassword());
+        assertEquals(original.getPasswordVersion(), stored.getPasswordVersion());
+        assertEquals(original.getAvatar(), stored.getAvatar());
+        assertEquals(original.getCreatedAt(), stored.getCreatedAt());
+        assertNotNull(stored.getUpdatedAt());
+        var phoneOnly = userAccountService.updateUser(id,
+                new UpdateUserAccountDTO("新昵称", " 13800138902 ", null));
+        assertEquals("13800138902", phoneOnly.phone());
+        assertNull(phoneOnly.email());
+    }
+
+    @Test
+    void adminContactConflictsAreBusinessErrorsAndDoNotPartiallyUpdate() {
+        jdbcTemplate.update("""
+                INSERT INTO user_account (user_no, phone, email, nickname)
+                VALUES ('edit-first', '13800138903', 'edit-first@example.com', '原昵称'),
+                       ('edit-second', '13800138904', 'edit-second@example.com', '占用')
+                """);
+        Long id = jdbcTemplate.queryForObject("SELECT id FROM user_account WHERE user_no = 'edit-first'", Long.class);
+        for (var dto : List.of(
+                new UpdateUserAccountDTO("改动", "13800138904", "new-edit@example.com"),
+                new UpdateUserAccountDTO("改动", "13800138905", "edit-second@example.com"))) {
+            var failure = assertThrows(BusinessException.class, () -> userAccountService.updateUser(id, dto));
+            assertEquals(ErrorCode.TARGET_ALREADY_BOUND, failure.getErrorCode());
+            assertNotNull(failure.getCause());
+            UserAccount stored = userAccountMapper.selectById(id);
+            assertEquals("原昵称", stored.getNickname());
+            assertEquals("13800138903", stored.getPhone());
+            assertEquals("edit-first@example.com", stored.getEmail());
+        }
+        assertEquals(ErrorCode.BAD_REQUEST, assertThrows(BusinessException.class,
+                () -> userAccountService.updateUser(Long.MAX_VALUE,
+                        new UpdateUserAccountDTO("不存在", null, "missing@example.com"))).getErrorCode());
+    }
 
     @Test
     void userMappingAndRepeatedWritesPreserveDatabaseContract() {

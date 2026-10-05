@@ -1,113 +1,117 @@
 @echo off
+chcp 65001 >nul
 setlocal
 
 REM ============================================================
-REM  Ò»¼üµ¼Èë Atlas ÑÝÊ¾Êý¾Ý
-REM  ÒÀ´ÎÖ´ÐÐ demosql\01_sys_user.sql ºÍ demosql\02_user_account.sql
+REM  ä¸€é”®å¯¼å…¥ Atlas æ¼”ç¤ºæ•°æ®
+REM  ä¾æ¬¡æ‰§è¡Œ demosql\01_sys_user.sql å’Œ demosql\02_user_account.sql
 REM
-REM  Á¬½Ó²ÎÊýÄ¬ÈÏÈ¡×Ô application.yml£¬¿ÉÓÃ»·¾³±äÁ¿¸²¸Ç£º
+REM  è¿žæŽ¥å‚æ•°é»˜è®¤å€¼ä¸Ž application.yml çš„æœ¬åœ°é»˜è®¤å€¼ä¸€è‡´ï¼Œå¯ç”¨çŽ¯å¢ƒå˜é‡è¦†ç›–ï¼š
 REM    DB_HOST / DB_PORT / DB_NAME / DB_USERNAME / DB_PASSWORD / MYSQL_BIN
 REM ============================================================
 
 cd /d "%~dp0"
 
-REM ---------- Á¬½Ó²ÎÊý£¨¿ÉÓÃ»·¾³±äÁ¿¸²¸Ç£© ----------
+REM ---------- è¿žæŽ¥å‚æ•°ï¼ˆå¯ç”¨çŽ¯å¢ƒå˜é‡è¦†ç›–ï¼‰ ----------
 if not defined DB_HOST     set "DB_HOST=localhost"
 if not defined DB_PORT     set "DB_PORT=3306"
 if not defined DB_NAME     set "DB_NAME=web_project"
 if not defined DB_USERNAME set "DB_USERNAME=root"
 if not defined DB_PASSWORD set "DB_PASSWORD=123456"
+set "MYSQL_PWD=%DB_PASSWORD%"
 
 set "SQL_FILE_1=01_sys_user.sql"
 set "SQL_FILE_2=02_user_account.sql"
 
-REM ---------- È·¶¨ mysql ¿Í»§¶ËÂ·¾¶ ----------
+REM ---------- ç¡®å®š mysql å®¢æˆ·ç«¯è·¯å¾„ ----------
 set "MYSQL="
 if defined MYSQL_BIN if exist "%MYSQL_BIN%" set "MYSQL=%MYSQL_BIN%"
+if not defined MYSQL for /f "delims=" %%I in ('where mysql.exe 2^>nul') do if not defined MYSQL set "MYSQL=%%I"
 
 if not defined MYSQL if exist "D:\Develop\sofe\Mysql\bin\mysql.exe" set "MYSQL=D:\Develop\sofe\Mysql\bin\mysql.exe"
 if not defined MYSQL if exist "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" set "MYSQL=C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe"
 if not defined MYSQL if exist "C:\Program Files (x86)\MySQL\MySQL Server 8.0\bin\mysql.exe" set "MYSQL=C:\Program Files (x86)\MySQL\MySQL Server 8.0\bin\mysql.exe"
 
 if not defined MYSQL (
-    echo [ERROR] Î´ÕÒµ½ mysql ¿Í»§¶Ë¡£
-    echo         Çë½« mysql.exe ¼ÓÈë PATH£¬»òÉèÖÃ»·¾³±äÁ¿ MYSQL_BIN Ö¸ÏòËü¡£
-    echo         ÀýÈç:  set MYSQL_BIN=D:\Develop\sofe\Mysql\bin\mysql.exe
+    echo [ERROR] æœªæ‰¾åˆ° mysql å®¢æˆ·ç«¯ã€‚
+    echo         è¯·å°† mysql.exe åŠ å…¥ PATHï¼Œæˆ–è®¾ç½®çŽ¯å¢ƒå˜é‡ MYSQL_BIN æŒ‡å‘å®ƒã€‚
+    echo         ä¾‹å¦‚:  set MYSQL_BIN=D:\Develop\sofe\Mysql\bin\mysql.exe
     echo.
     pause
     exit /b 1
 )
 
 if not exist "%SQL_FILE_1%" (
-    echo [ERROR] ÕÒ²»µ½ÎÄ¼þ: %SQL_FILE_1%
+    echo [ERROR] æ‰¾ä¸åˆ°æ–‡ä»¶: %SQL_FILE_1%
     echo.
     pause
     exit /b 1
 )
 if not exist "%SQL_FILE_2%" (
-    echo [ERROR] ÕÒ²»µ½ÎÄ¼þ: %SQL_FILE_2%
+    echo [ERROR] æ‰¾ä¸åˆ°æ–‡ä»¶: %SQL_FILE_2%
     echo.
     pause
     exit /b 1
 )
 
 echo ============================================================
-echo  Atlas ÑÝÊ¾Êý¾Ýµ¼Èë
+echo  Atlas æ¼”ç¤ºæ•°æ®å¯¼å…¥
 echo ============================================================
 echo  mysql   : %MYSQL%
-echo  Ä¿±ê¿â  : %DB_NAME%@%DB_HOST%:%DB_PORT%
-echo  ÕËºÅ    : %DB_USERNAME%
+echo  ç›®æ ‡åº“  : %DB_NAME%@%DB_HOST%:%DB_PORT%
+echo  è´¦å·    : %DB_USERNAME%
 echo ------------------------------------------------------------
 
-REM ---------- ÏÈÈ·ÈÏÄÜÁ¬ÉÏÄ¿±ê¿â ----------
-"%MYSQL%" -h"%DB_HOST%" -P"%DB_PORT%" -u"%DB_USERNAME%" -p"%DB_PASSWORD%" --default-character-set=utf8mb4 -e "USE `%DB_NAME%`;" 2>nul
+REM ---------- å…ˆç¡®è®¤èƒ½è¿žä¸Šç›®æ ‡åº“ ----------
+"%MYSQL%" -h"%DB_HOST%" -P"%DB_PORT%" -u"%DB_USERNAME%" --default-character-set=utf8mb4 -e "USE `%DB_NAME%`;"
 if errorlevel 1 (
-    echo [ERROR] ÎÞ·¨Á¬½ÓÊý¾Ý¿â %DB_NAME%£¬Çë¼ì²éÁ¬½Ó²ÎÊý»òÊý¾Ý¿âÊÇ·ñÒÑÆô¶¯¡£
+    echo [ERROR] æ— æ³•è¿žæŽ¥æ•°æ®åº“ %DB_NAME%ï¼Œè¯·æ£€æŸ¥è¿žæŽ¥å‚æ•°æˆ–æ•°æ®åº“æ˜¯å¦å·²å¯åŠ¨ã€‚
     echo.
     pause
     exit /b 1
 )
-echo [OK] Êý¾Ý¿âÁ¬½ÓÕý³£
+echo [OK] æ•°æ®åº“è¿žæŽ¥æ­£å¸¸
 echo.
 
-REM ---------- ÒÀ´Îµ¼Èë ----------
-call :RUN_SQL "%SQL_FILE_1%" "ÏµÍ³ÓÃ»§ sys_user (50 Ìõ)"
+REM ---------- ä¾æ¬¡å¯¼å…¥ ----------
+call :RUN_SQL "%SQL_FILE_1%" "ç³»ç»Ÿç”¨æˆ· sys_user (50 æ¡)"
 if errorlevel 1 goto :FAIL
 
-call :RUN_SQL "%SQL_FILE_2%" "ÆÕÍ¨ÓÃ»§ user_account (100 Ìõ)"
+call :RUN_SQL "%SQL_FILE_2%" "æ™®é€šç”¨æˆ· user_account (100 æ¡)"
+if errorlevel 1 goto :FAIL
+
+call :RUN_SQL "03_verify.sql" "å¯¼å…¥ç»“æžœæ ¡éªŒ"
 if errorlevel 1 goto :FAIL
 
 echo ------------------------------------------------------------
-echo [DONE] ÑÝÊ¾Êý¾Ýµ¼ÈëÍê³É¡£
+echo [DONE] æ¼”ç¤ºæ•°æ®å¯¼å…¥å®Œæˆã€‚
 echo ------------------------------------------------------------
-echo.
-"%MYSQL%" -h"%DB_HOST%" -P"%DB_PORT%" -u"%DB_USERNAME%" -p"%DB_PASSWORD%" --default-character-set=utf8mb4 "%DB_NAME%" < "03_verify.sql" 2>nul
 echo.
 pause
 exit /b 0
 
 REM ============================================================
-REM  ×Ó¹ý³Ì£ºÖ´ÐÐµ¥¸ö SQL ÎÄ¼þ
-REM  ²ÎÊý1 = ÎÄ¼þÂ·¾¶   ²ÎÊý2 = ÃèÊö
+REM  å­è¿‡ç¨‹ï¼šæ‰§è¡Œå•ä¸ª SQL æ–‡ä»¶
+REM  å‚æ•°1 = æ–‡ä»¶è·¯å¾„   å‚æ•°2 = æè¿°
 REM ============================================================
 :RUN_SQL
 echo [RUN] %~2
 echo        ^<- %~1
-"%MYSQL%" -h"%DB_HOST%" -P"%DB_PORT%" -u"%DB_USERNAME%" -p"%DB_PASSWORD%" --default-character-set=utf8mb4 "%DB_NAME%" < "%~1"
+"%MYSQL%" -h"%DB_HOST%" -P"%DB_PORT%" -u"%DB_USERNAME%" --default-character-set=utf8mb4 "%DB_NAME%" < "%~1"
 if errorlevel 1 (
-    echo [ERROR] µ¼ÈëÊ§°Ü: %~1
-    echo         ³£¼ûÔ­Òò: ±í²»´æÔÚ£¬»òÍ¬ÅúÊý¾ÝÒÑ´æÔÚ£¨Î¨Ò»¼ü³åÍ» 1062£©¡£
+    echo [ERROR] å¯¼å…¥å¤±è´¥: %~1
+    echo         å¸¸è§åŽŸå› : è¡¨ä¸å­˜åœ¨ï¼Œæˆ–åŒæ‰¹æ•°æ®å·²å­˜åœ¨ï¼ˆå”¯ä¸€é”®å†²çª 1062ï¼‰ã€‚
     echo.
     pause
     exit /b 1
 )
-echo [OK]  %~2 µ¼Èë³É¹¦
+echo [OK]  %~2 å¯¼å…¥æˆåŠŸ
 echo.
 exit /b 0
 
 :FAIL
 echo.
-echo [FAILED] µ¼ÈëÖÐ¶Ï£¬Çë¸ù¾ÝÉÏÃæµÄ´íÎóÐÅÏ¢ÅÅ²é¡£
+echo [FAILED] å¯¼å…¥ä¸­æ–­ï¼Œè¯·æ ¹æ®ä¸Šé¢çš„é”™è¯¯ä¿¡æ¯æŽ’æŸ¥ã€‚
 echo.
 pause
 exit /b 1

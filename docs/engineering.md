@@ -8,7 +8,7 @@
 
 ## 当前业务范围
 
-包含系统用户与普通用户两类账号的完整认证链路：系统用户以用户名和密码登录，并支持系统用户的查询、新增、编辑、启停用、密码重置和删除；普通用户以手机号或邮箱注册、登录，并支持验证码、忘记密码、登录态修改密码、个人资料和联系方式换绑；系统用户可管理手机号、邮箱两个认证渠道的开关。当前实现不包含普通用户管理写接口，也不包含普通用户前端。后续开发以该范围为准，新增业务需有明确需求。
+包含系统用户与普通用户两类账号的完整认证链路：系统用户以用户名和密码登录，并支持系统用户的查询、新增、编辑、启停用、密码重置和删除；普通用户以手机号或邮箱注册、登录，并支持验证码、忘记密码、登录态修改密码、个人资料和联系方式换绑；系统用户可管理手机号、邮箱两个认证渠道的开关，并直接编辑普通用户昵称、手机号和邮箱（包括禁用账号，至少保留一种联系方式）。当前实现不包含普通用户前端。后续开发以该范围为准，新增业务需有明确需求。
 
 系统用户接口使用 `/api/sys-user/**`，普通用户接口使用 `/api/user/**`。接口路径、请求参数和响应结构以[接口文档](api.md)为准，README 只保留接口速览。
 
@@ -73,7 +73,7 @@ $env:JAVA_HOME = 'C:\Users\ww\.jdks\temurin-25.0.4.1'
 - `JwtConfigTest` 和 `PasswordEncoderTest`：无效签名密钥拒绝、密码验证成功与失败。
 - `AuthSessionStoreTest` 和 `VerificationCodeStoreTest`：在本地真实 Redis 上验证会话 key 隔离、TTL、删除幂等，以及验证码、发送锁、每日次数和失败次数。本机缺少 Redis 时按 JUnit assumption 跳过。
 - `AuthSessionServiceTest`：在真实 Redis 上验证会话创建、Refresh、Logout，以及账号类型不匹配、会话删除、账号禁用和密码版本变化时拒绝续期；账号查询使用 mock Mapper。
-- `UserAuthServiceImplTest`、`VerificationCodeServiceTest`、`AuthChannelServiceImplTest`、`UserProfileServiceImplTest`：注册、登录、验证码、渠道开关、改密和换绑的业务规则与错误路径。
+- `UserAuthServiceImplTest`、`VerificationCodeServiceTest`、`AuthChannelServiceImplTest`、`UserProfileServiceImplTest`、`UserAccountServiceImplTest`：注册、登录、验证码、渠道开关、改密、换绑及管理端编辑普通用户的业务规则与错误路径。
 - `ContactNormalizerTest` 和 `PasswordPolicyTest`：联系方式规范化与密码长度、UTF-8 字节边界。
 - `SensitiveDataLoggingTest`：敏感对象及响应容器的打印不暴露凭据或完整联系方式，Token 的 JSON 契约不变。
 - `VerificationCodeStoreFailureTest`：Redis 无返回结果时抛出异常，不转换为频率限制、零计数或验证码错误。
@@ -102,7 +102,7 @@ python scripts/verify_backend.py `
 
 路径按本机安装位置调整；MySQL 地址可通过 `--db-host`、`--db-port` 指定，账号和密码沿用 `DB_USERNAME`、`DB_PASSWORD`。脚本自行生成独立数据库和 JWT 密钥、启动私有 Redis 与实际打包应用，不使用现有业务库或 Redis 数据；结束后删除本次创建的库并关闭自己的进程。MySQL 服务是已有本机服务，不会被停止；容量结论因此只用于本机基线。
 
-脚本执行 `clean verify`，拒绝必需集成测试跳过，再通过真实 HTTP 验证注册、两类账号登录/续期/退出、权限、渠道、个人资料、密码版本、换绑及错误路径。并发检查在 HTTP 层验证验证码登录、发送和注册各 16 个请求的结果分布。故障检查验证无效渠道配置、Redis 中断及恢复，并扫描本次敏感值是否进入应用日志。验证码从私有 Redis 读取，只用于验证开发发送实现，不代表真实短信/邮件送达。
+脚本执行 `clean verify`，拒绝必需集成测试跳过，再通过真实 HTTP 验证注册、两类账号登录/续期/退出、权限、渠道、个人资料、密码版本、换绑、管理端编辑普通用户及错误路径。并发检查在 HTTP 层验证验证码登录、发送和注册各 16 个请求的结果分布，以及两个管理员编辑请求争用同一联系方式时仅一个成功。故障检查验证无效渠道配置、Redis 中断及恢复，并扫描本次敏感值是否进入应用日志。验证码从私有 Redis 读取，只用于验证开发发送实现，不代表真实短信/邮件送达。
 
 默认性能基线先预热 20 次，再分别以 1、8、24 个并发工作线程持续 10 秒，约 40% 查询资料、40% 续期、20% 密码登录；`--seconds` 可设为 1～60。通过条件是非预期错误为零且每档结束后的资料查询正常；记录吞吐量、P95/P99、Java CPU 时间和阶段结束时工作集、Redis 内存、MySQL 连接数。该短时基线不设响应时间 SLA，不等同于长时间稳定性、超载极限或生产容量验收。
 

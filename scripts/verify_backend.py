@@ -249,6 +249,7 @@ class BackendGate:
         token = pair["accessToken"]
         self.check("user profile", "GET", "/api/user/me", token=token)
         self.list_checks()
+        self.admin_user_edit_checks(token, sys_pair["refreshToken"])
         self.check("role isolation", "GET", "/api/sys-user/users", token=token, status=403, code=40301)
         self.check("profile update", "PUT", "/api/user/me", {"nickname": "quality", "avatar": None}, token)
         self.check("idempotent profile", "PUT", "/api/user/me", {"nickname": "quality", "avatar": None}, token)
@@ -320,6 +321,75 @@ class BackendGate:
                    status=401, code=40102)
         self.check("deleted user refresh", "POST", "/api/user/auth/refresh",
                    {"refreshToken": phone_pair["refreshToken"]}, status=401, code=40104)
+
+    def admin_user_edit_checks(self, user_token, refresh_token):
+        suffix = uuid.uuid4().hex[:12]
+        first_email = "edit-first-" + suffix + "@example.com"
+        second_email = "edit-second-" + suffix + "@example.com"
+        new_email = "edited-" + suffix + "@example.com"
+        race_email = "edit-race-" + suffix + "@example.com"
+        phone = "139" + str(secrets.randbelow(100000000)).zfill(8)
+        self.sensitive.extend([first_email, second_email, new_email, race_email, phone])
+        self.sql("INSERT INTO user_account (user_no,email,password,password_version,nickname,avatar,status) "
+                 "SELECT 'edit-first-" + suffix + "','" + first_email + "',password,7,'before','/avatar.png',0 "
+                 "FROM user_account WHERE email='" + self.email + "'")
+        self.sql("INSERT INTO user_account (user_no,email,nickname) "
+                 "VALUES ('edit-second-" + suffix + "','" + second_email + "','second')")
+        first_id = int(self.sql("SELECT id FROM user_account WHERE email='" + first_email + "'"))
+        second_id = int(self.sql("SELECT id FROM user_account WHERE email='" + second_email + "'"))
+        path = "/api/sys-user/users/" + str(first_id)
+        protected_query = ("SELECT user_no,password,password_version,avatar,status,created_at FROM user_account "
+                           "WHERE id=" + str(first_id))
+        protected_before = self.sql(protected_query)
+        payload = {"nickname": " edited ", "phone": " ", "email": " " + new_email.upper() + " "}
+        self.check("user cannot edit user", "PUT", path, payload, user_token, status=403, code=40301)
+        self.check("anonymous cannot edit user", "PUT", path, payload, status=401, code=40102)
+        self.check("refresh cannot edit user", "PUT", path, payload, refresh_token, status=401, code=40102)
+        for label in ("admin edits disabled user", "repeated admin edit succeeds"):
+            edited = self.check(label, "PUT", path, payload, self.sys_token)
+            require(edited["id"] == first_id and edited["nickname"] == "edited" and edited["phone"] is None
+                    and edited["email"] == new_email and edited["status"] == 0,
+                    "Admin edit returned incorrect normalized data")
+            require("password" not in edited and "passwordVersion" not in edited, "Admin edit exposed credentials")
+        require(self.sql(protected_query) == protected_before, "Admin edit changed protected fields")
+        for label, invalid in (
+                ("admin edit needs one contact", {"nickname": "edited", "phone": " ", "email": None}),
+                ("admin edit needs nickname", {"nickname": " ", "email": new_email}),
+                ("admin edit nickname length", {"nickname": "x" * 51, "email": new_email}),
+                ("admin edit phone format", {"nickname": "edited", "phone": "123"}),
+                ("admin edit email format", {"nickname": "edited", "email": "broken"}),
+                ("admin edit email length", {"nickname": "edited", "email": "x" * 100 + "@example.com"})):
+            self.check(label, "PUT", path, invalid, self.sys_token, status=400, code=40000)
+        self.check("admin edit missing account", "PUT", "/api/sys-user/users/9223372036854775807",
+                   payload, self.sys_token, status=400, code=40000)
+        self.check("admin edit duplicate email", "PUT", path,
+                   {"nickname": "should-not-change", "phone": phone, "email": second_email},
+                   self.sys_token, status=400, code=40017)
+        require(self.sql("SELECT nickname,email FROM user_account WHERE id=" + str(first_id)) == "edited\t" + new_email,
+                "Contact conflict partially changed user")
+        self.check("admin can keep only phone", "PUT", path,
+                   {"nickname": "edited", "phone": " " + phone + " ", "email": None}, self.sys_token)
+        self.check("admin edit duplicate phone", "PUT", "/api/sys-user/users/" + str(second_id),
+                   {"nickname": "second", "phone": phone, "email": second_email},
+                   self.sys_token, status=400, code=40017)
+        barrier = threading.Barrier(2)
+
+        def edit_once(account_id):
+            barrier.wait(timeout=10)
+            return self.request("PUT", "/api/sys-user/users/" + str(account_id),
+                                {"nickname": "race", "phone": None, "email": race_email}, self.sys_token)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(edit_once, (first_id, second_id)))
+        require(sum(status == 200 for status, _, _ in results) == 1, "Concurrent admin edits need one winner")
+        require(all((status, body["code"]) in ((200, 200), (400, 40017)) for status, body, _ in results),
+                "Concurrent admin edits returned unexpected response")
+        require(self.sql("SELECT COUNT(*) FROM user_account WHERE email='" + race_email + "'") == "1",
+                "Concurrent admin edits violated contact uniqueness")
+        require(self.sql("SELECT COUNT(*) FROM user_account WHERE id IN (" + str(first_id) + ","
+                         + str(second_id) + ") AND phone IS NULL AND email IS NULL") == "0",
+                "Concurrent admin edits removed all login contacts")
+        self.report["scenarios"].append({"name": "concurrent admin contact edits: one winner", "passed": True})
 
     def channel_checks(self):
         path = "/api/sys-user/auth-channels/"

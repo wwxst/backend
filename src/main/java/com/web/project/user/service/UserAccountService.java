@@ -2,12 +2,15 @@ package com.web.project.user.service;
 
 import com.web.project.common.result.PageResult;
 import com.web.project.user.dto.UserAccountQueryDTO;
+import com.web.project.user.dto.UpdateUserAccountDTO;
 import com.web.project.user.vo.UserAccountListVO;
 
 /**
  * 普通用户管理业务接口。
  */
 public interface UserAccountService {
+
+    UserAccountListVO updateUser(Long id, UpdateUserAccountDTO updateDTO);
 
     /**
      * 分页查询普通用户列表。

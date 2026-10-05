@@ -8,7 +8,7 @@
 - 两类账号共用 Access/Refresh Token、Session、Refresh、Logout 和 JWT 校验。
 - 普通用户支持验证码、忘记密码、登录态修改密码、个人资料和联系方式换绑。
 - 系统用户可查询和修改手机号、邮箱两个认证渠道的开关。
-- 系统用户分页查询系统用户和普通用户列表，可按关键词、状态筛选。
+- 系统用户分页查询系统用户和普通用户列表，可按关键词、状态筛选，并可直接编辑普通用户昵称、手机号和邮箱。
 - BCrypt 密码验证、JWT 认证及 `SCOPE_admin` / `SCOPE_user` 权限隔离。
 
 普通用户前端尚未实现；管理端前端已接入系统用户双 Token。
@@ -25,6 +25,7 @@
 | GET | `/api/sys-user/auth/me` | `SCOPE_admin` | 当前系统用户 |
 | GET | `/api/sys-user/sys-users` | `SCOPE_admin` | 系统用户列表 |
 | GET | `/api/sys-user/users` | `SCOPE_admin` | 普通用户列表 |
+| PUT | `/api/sys-user/users/{id}` | `SCOPE_admin` | 编辑普通用户昵称、手机号和邮箱 |
 | GET | `/api/sys-user/auth-channels` | `SCOPE_admin` | 查询渠道配置 |
 | PUT | `/api/sys-user/auth-channels/{channel}` | `SCOPE_admin` | 修改渠道配置 |
 | POST | `/api/user/auth/send-code` | 公开 | 发送验证码 |

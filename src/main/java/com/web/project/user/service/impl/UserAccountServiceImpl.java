@@ -2,12 +2,19 @@ package com.web.project.user.service.impl;
 
 import com.web.project.common.result.PageResult;
 import com.web.project.user.dto.UserAccountQueryDTO;
+import com.web.project.user.dto.UpdateUserAccountDTO;
+import com.web.project.auth.model.TargetType;
+import com.web.project.auth.util.ContactNormalizer;
+import com.web.project.common.error.ErrorCode;
+import com.web.project.common.exception.BusinessException;
 import com.web.project.user.entity.UserAccount;
 import com.web.project.user.mapper.UserAccountMapper;
 import com.web.project.user.service.UserAccountService;
 import com.web.project.user.vo.UserAccountListVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -19,6 +26,29 @@ import java.util.List;
 public class UserAccountServiceImpl implements UserAccountService {
 
     private final UserAccountMapper userAccountMapper;
+
+    @Override
+    @Transactional
+    public UserAccountListVO updateUser(Long id, UpdateUserAccountDTO updateDTO) {
+        String phone = updateDTO.phone() == null ? null
+                : ContactNormalizer.normalize(TargetType.PHONE, updateDTO.phone());
+        String email = updateDTO.email() == null ? null
+                : ContactNormalizer.normalize(TargetType.EMAIL, updateDTO.email());
+        try {
+            int updated = userAccountMapper.updateAccount(id, updateDTO.nickname(), phone, email);
+            if (updated != 1) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "用户不存在");
+            }
+        } catch (DuplicateKeyException exception) {
+            throw new BusinessException(ErrorCode.TARGET_ALREADY_BOUND, exception);
+        }
+        return toListVO(userAccountMapper.selectById(id));
+    }
+
+    private UserAccountListVO toListVO(UserAccount account) {
+        return new UserAccountListVO(account.getId(), account.getUserNo(), account.getPhone(), account.getEmail(),
+                account.getNickname(), account.getStatus(), account.getCreatedAt(), account.getUpdatedAt());
+    }
 
     /**
      * 分页查询普通用户列表。
@@ -71,16 +101,7 @@ public class UserAccountServiceImpl implements UserAccountService {
         // 列表只返回展示字段，密码与密码版本不进入响应。
         List<UserAccountListVO> records = userAccounts
                 .stream()
-                .map(userAccount -> new UserAccountListVO(
-                        userAccount.getId(),
-                        userAccount.getUserNo(),
-                        userAccount.getPhone(),
-                        userAccount.getEmail(),
-                        userAccount.getNickname(),
-                        userAccount.getStatus(),
-                        userAccount.getCreatedAt(),
-                        userAccount.getUpdatedAt()
-                ))
+                .map(this::toListVO)
                 .toList();
 
         return new PageResult<>(

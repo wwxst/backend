@@ -241,6 +241,32 @@ Authorization: Bearer <accessToken>
 
 由系统用户访问，查询参数为 `page`、`pageSize`、`keyword`、`status`、`createdAtOrder`，分页结构与系统用户列表相同；`keyword` 最多 50 个字符，匹配用户号码、手机号、邮箱或昵称；`createdAtOrder` 支持 `asc` 创建时间升序和 `desc` 降序，不传时按创建时间倒序。同一创建时间按 ID 同向排序。`records` 对应 `UserAccountListVO`，字段为 `id`、`userNo`、`phone`、`email`、`nickname`、`status`、`createdAt`、`updatedAt`，不会返回密码和密码版本字段。
 
+### 管理端编辑普通用户
+
+```http
+PUT /api/sys-user/users/{id}
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+```
+
+```json
+{
+  "nickname": "新昵称",
+  "phone": "13800138000",
+  "email": null
+}
+```
+
+仅 `SCOPE_admin` 可调用，允许编辑禁用的普通用户。昵称去除首尾空白后必填，最多 50 个字符；
+手机号、邮箱为完整替换值，`null`、空字符串或纯空白均表示清空，必须至少保留一种联系方式。
+手机号按现有规则校验 11 位中国大陆号码；邮箱去除首尾空白、转为小写，最多 100 个字符并校验格式。
+管理员直接修改联系方式无需验证码；用户本人仍通过原换绑接口验证旧、新联系方式验证码。
+该接口不受认证渠道开关限制，也不会修改 `id`、`userNo`、`status`、密码、密码版本、头像或创建时间。
+
+成功响应 `data` 为与列表相同的 `UserAccountListVO`，包含数据库实际保存的资料和更新时间。
+重复提交相同值成功。用户不存在返回 `40000` / `用户不存在`；格式或缺少联系方式返回 `40000`；
+手机号或邮箱被其他账号占用返回 `40017` / `该手机号或邮箱已被绑定`，整次更新不生效。
+
 ## 渠道配置
 
 `sys_config` 保存 4 个布尔配置：

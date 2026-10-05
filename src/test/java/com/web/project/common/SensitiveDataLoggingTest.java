@@ -15,6 +15,7 @@ import com.web.project.common.result.Result;
 import com.web.project.config.properties.JwtProperties;
 import com.web.project.user.dto.RebindEmailDTO;
 import com.web.project.user.dto.RebindPhoneDTO;
+import com.web.project.user.dto.UpdateUserAccountDTO;
 import com.web.project.user.vo.UserAccountListVO;
 import com.web.project.user.vo.UserInfoVO;
 import org.junit.jupiter.api.Test;
@@ -49,6 +50,7 @@ class SensitiveDataLoggingTest {
                 new RefreshTokenDTO(refresh),
                 new RebindPhoneDTO(email, TargetType.EMAIL, code, phone, code),
                 new RebindEmailDTO(phone, TargetType.PHONE, code, email, code),
+                new UpdateUserAccountDTO("昵称", phone, email),
                 new AccessTokenVO(access),
                 pair,
                 profile,

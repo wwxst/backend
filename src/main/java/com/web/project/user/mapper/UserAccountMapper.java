@@ -57,6 +57,16 @@ public interface UserAccountMapper {
     int updateEmail(@Param("id") Long id, @Param("email") String email);
 
     /**
+     * 管理端仅更新昵称与联系方式，允许编辑禁用账号。
+     */
+    int updateAccount(
+            @Param("id") Long id,
+            @Param("nickname") String nickname,
+            @Param("phone") String phone,
+            @Param("email") String email
+    );
+
+    /**
      * 查询符合条件的用户总数。
      *
      * @param keyword 用户号码、手机号、邮箱或昵称关键词

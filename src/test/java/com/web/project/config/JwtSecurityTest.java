@@ -6,6 +6,9 @@ import com.web.project.auth.service.JwtTokenService;
 import com.web.project.common.result.PageResult;
 import com.web.project.config.properties.JwtProperties;
 import com.web.project.user.service.UserProfileService;
+import com.web.project.user.service.UserAccountService;
+import com.web.project.user.dto.UpdateUserAccountDTO;
+import com.web.project.user.vo.UserAccountListVO;
 import com.web.project.user.vo.UserInfoVO;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,6 +47,48 @@ class JwtSecurityTest {
     @Autowired JwtProperties properties;
     @MockitoBean SysUserService admins;
     @MockitoBean UserProfileService profiles;
+    @MockitoBean UserAccountService users;
+
+    @Test
+    void adminCanEditOrdinaryUserButUserAnonymousAndRefreshCannot() throws Exception {
+        String path = "/api/sys-user/users/5";
+        String payload = "{\"nickname\":\"昵称\",\"phone\":null,\"email\":\"new@example.com\"}";
+        when(users.updateUser(eq(5L), any())).thenReturn(new UserAccountListVO(
+                5L, "123456", null, "new@example.com", "昵称", 0, LocalDateTime.now(), LocalDateTime.now()));
+        mvc.perform(put(path).contentType("application/json").content(payload)
+                        .header("Authorization", "Bearer " + adminAccessToken()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.id").value(5))
+                .andExpect(jsonPath("$.data.status").value(0))
+                .andExpect(jsonPath("$.data.password").doesNotExist())
+                .andExpect(jsonPath("$.data.passwordVersion").doesNotExist());
+        verify(users).updateUser(5L, new UpdateUserAccountDTO("昵称", null, "new@example.com"));
+        clearInvocations(users);
+        mvc.perform(put(path).contentType("application/json").content(payload))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(put(path).contentType("application/json").content(payload)
+                        .header("Authorization", "Bearer " + userAccessToken()))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value(40301));
+        mvc.perform(put(path).contentType("application/json").content(payload)
+                        .header("Authorization", "Bearer " + tokens.createRefreshToken(
+                                AccountType.SYS_USER, 1L, "session-admin", null)))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(users);
+    }
+
+    @Test
+    void ordinaryUserEditValidatesNicknameAndRequiresOneContact() throws Exception {
+        for (String nickname : List.of(" ", "长".repeat(51))) {
+            mvc.perform(put("/api/sys-user/users/5").contentType("application/json")
+                            .content("{\"nickname\":\"" + nickname + "\",\"email\":\"new@example.com\"}")
+                            .header("Authorization", "Bearer " + adminAccessToken()))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40000));
+        }
+        mvc.perform(put("/api/sys-user/users/5").contentType("application/json")
+                        .content("{\"nickname\":\"昵称\",\"phone\":\" \",\"email\":null}")
+                        .header("Authorization", "Bearer " + adminAccessToken()))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40000));
+        verifyNoInteractions(users);
+    }
 
     private String adminAccessToken() {
         return tokens.createAccessToken(AccountType.SYS_USER, 1L, "session-admin", null);
