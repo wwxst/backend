@@ -49,6 +49,33 @@ class MapperIntegrationTest {
     private UserAccountService userAccountService;
 
     @Test
+    void enableDisableAndRepeatedStatusWritesPreserveOtherAccountFields() {
+        jdbcTemplate.update("""
+                INSERT INTO user_account (user_no, phone, email, password, password_version, nickname, avatar)
+                VALUES ('status-user', '13800138909', 'status-test@example.com', 'test-hash', 7,
+                        '状态测试', '/avatar.png')
+                """);
+        Long id = jdbcTemplate.queryForObject("SELECT id FROM user_account WHERE user_no = 'status-user'", Long.class);
+        UserAccount original = userAccountMapper.selectById(id);
+        for (int status : List.of(0, 0, 1, 1)) {
+            userAccountService.updateStatus(id, status);
+            UserAccount saved = userAccountMapper.selectById(id);
+            assertEquals(status, saved.getStatus());
+            assertEquals(original.getNickname(), saved.getNickname());
+            assertEquals(original.getPhone(), saved.getPhone());
+            assertEquals(original.getEmail(), saved.getEmail());
+            assertEquals(original.getPassword(), saved.getPassword());
+            assertEquals(original.getPasswordVersion(), saved.getPasswordVersion());
+            assertEquals(original.getUserNo(), saved.getUserNo());
+            assertEquals(original.getAvatar(), saved.getAvatar());
+            assertEquals(original.getCreatedAt(), saved.getCreatedAt());
+            assertEquals(1, userAccountMapper.selectPageByCondition("status-user", status, 0, 10, null).size());
+            assertEquals(0, userAccountMapper.countByCondition("status-user", 1 - status));
+        }
+        assertThrows(BusinessException.class, () -> userAccountService.updateStatus(Long.MAX_VALUE, 0));
+    }
+
+    @Test
     void adminEditPreservesProtectedFieldsAndAllowsDisabledAccountAndContactRemoval() {
         jdbcTemplate.update("""
                 INSERT INTO user_account (user_no, phone, email, password, password_version, nickname, avatar, status)

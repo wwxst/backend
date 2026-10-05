@@ -16,6 +16,20 @@ class UserAccountServiceImplTest {
     private final UserAccountServiceImpl service = new UserAccountServiceImpl(mapper);
 
     @Test
+    void missingStatusTargetIsNotReportedAsSuccess() {
+        var failure = assertThrows(BusinessException.class, () -> service.updateStatus(5L, 0));
+        assertEquals(ErrorCode.BAD_REQUEST, failure.getErrorCode());
+        assertEquals("用户不存在", failure.getMessage());
+    }
+
+    @Test
+    void statusWriteFailurePropagates() {
+        var failure = new IllegalStateException("database unavailable");
+        when(mapper.updateStatus(5L, 0)).thenThrow(failure);
+        assertSame(failure, assertThrows(IllegalStateException.class, () -> service.updateStatus(5L, 0)));
+    }
+
+    @Test
     void updateReturnsDisabledAccountWithNormalizedContacts() {
         UserAccount stored = new UserAccount();
         stored.setId(5L);

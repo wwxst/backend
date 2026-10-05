@@ -4,6 +4,7 @@ import com.web.project.common.result.PageResult;
 import com.web.project.common.result.Result;
 import com.web.project.user.dto.UserAccountQueryDTO;
 import com.web.project.user.dto.UpdateUserAccountDTO;
+import com.web.project.user.dto.UserAccountStatusUpdateDTO;
 import com.web.project.user.service.UserAccountService;
 import com.web.project.user.vo.UserAccountListVO;
 import jakarta.validation.Valid;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
 /**
@@ -27,6 +29,15 @@ import org.springframework.web.bind.annotation.RequestBody;
 public class UserAccountController {
 
     private final UserAccountService userAccountService;
+
+    @PatchMapping("/{id}/status")
+    public Result<Void> updateStatus(
+            @PathVariable Long id,
+            @Valid @RequestBody UserAccountStatusUpdateDTO updateDTO
+    ) {
+        userAccountService.updateStatus(id, updateDTO.status());
+        return Result.success();
+    }
 
     @PutMapping("/{id}")
     public Result<UserAccountListVO> updateUser(

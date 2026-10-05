@@ -17,6 +17,9 @@ public interface UserAccountMapper {
      */
     UserAccount selectById(@Param("id") Long id);
 
+    /** 只更新账号状态，返回匹配行数。 */
+    int updateStatus(@Param("id") Long id, @Param("status") Integer status);
+
     /**
      * 根据规范化手机号查询普通用户。
      */

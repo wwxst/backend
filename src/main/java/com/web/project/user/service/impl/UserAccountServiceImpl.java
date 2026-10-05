@@ -29,6 +29,14 @@ public class UserAccountServiceImpl implements UserAccountService {
 
     @Override
     @Transactional
+    public void updateStatus(Long id, Integer status) {
+        if (userAccountMapper.updateStatus(id, status) != 1) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "用户不存在");
+        }
+    }
+
+    @Override
+    @Transactional
     public UserAccountListVO updateUser(Long id, UpdateUserAccountDTO updateDTO) {
         String phone = updateDTO.phone() == null ? null
                 : ContactNormalizer.normalize(TargetType.PHONE, updateDTO.phone());

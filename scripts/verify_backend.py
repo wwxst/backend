@@ -250,6 +250,7 @@ class BackendGate:
         self.check("user profile", "GET", "/api/user/me", token=token)
         self.list_checks()
         self.admin_user_edit_checks(token, sys_pair["refreshToken"])
+        self.admin_user_status_checks(pair, sys_pair["refreshToken"])
         self.check("role isolation", "GET", "/api/sys-user/users", token=token, status=403, code=40301)
         self.check("profile update", "PUT", "/api/user/me", {"nickname": "quality", "avatar": None}, token)
         self.check("idempotent profile", "PUT", "/api/user/me", {"nickname": "quality", "avatar": None}, token)
@@ -321,6 +322,54 @@ class BackendGate:
                    status=401, code=40102)
         self.check("deleted user refresh", "POST", "/api/user/auth/refresh",
                    {"refreshToken": phone_pair["refreshToken"]}, status=401, code=40104)
+
+    def admin_user_status_checks(self, pair, admin_refresh):
+        profile = self.check("status target profile", "GET", "/api/user/me", token=pair["accessToken"])
+        user_id = int(profile["id"])
+        path = f"/api/sys-user/users/{user_id}/status"
+        protected_query = ("SELECT user_no,phone,email,nickname,password,password_version,avatar,created_at "
+                           f"FROM user_account WHERE id={user_id}")
+        before = self.sql(protected_query)
+        for name, token, status, code in (
+                ("anonymous cannot change status", None, 401, 40102),
+                ("user cannot change status", pair["accessToken"], 403, 40301),
+                ("refresh cannot change status", admin_refresh, 401, 40102)):
+            self.check(name, "PATCH", path, {"status": 0}, token, status=status, code=code)
+        for value in (None, -1, 2):
+            self.check("invalid user status", "PATCH", path, {"status": value}, self.sys_token,
+                       status=400, code=40000)
+        self.check("missing user status target", "PATCH", "/api/sys-user/users/9223372036854775807/status",
+                   {"status": 0}, self.sys_token, status=400, code=40000)
+        self.check("admin disables user", "PATCH", path, {"status": 0}, self.sys_token)
+        self.check("disabled profile after admin action", "GET", "/api/user/me", token=pair["accessToken"],
+                   status=403, code=40303)
+        self.check("disabled refresh after admin action", "POST", "/api/user/auth/refresh",
+                   {"refreshToken": pair["refreshToken"]}, status=401, code=40104)
+        self.check("disabled password login after admin action", "POST", "/api/user/auth/login",
+                   {"target": self.email, "targetType": "EMAIL", "password": self.password},
+                   status=403, code=40303)
+        for user_status in (0, 1):
+            barrier = threading.Barrier(8)
+
+            def change_status(_):
+                barrier.wait(timeout=10)
+                return self.request("PATCH", path, {"status": user_status}, self.sys_token)
+
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                results = list(executor.map(change_status, range(8)))
+            require(all((status, body["code"]) == (200, 200) for status, body, _ in results),
+                    "Concurrent repeated status writes failed")
+            require(self.sql(f"SELECT status FROM user_account WHERE id={user_id}") == str(user_status),
+                    "Status writes saved an incorrect state")
+            require(self.sql(protected_query) == before, "Status writes changed other account fields")
+            listed = self.check("status filter matches saved state", "GET",
+                                f"/api/sys-user/users?keyword={profile['userNo']}&status={user_status}",
+                                token=self.sys_token)
+            require(any(row["id"] == user_id and row["status"] == user_status for row in listed["records"]),
+                    "Status change missing from filtered list")
+            self.report["scenarios"].append({"name": f"8 concurrent status={user_status} writes", "passed": True})
+        self.check("enabled profile restored", "GET", "/api/user/me", token=pair["accessToken"])
+        self.login(self.email, self.password)
 
     def admin_user_edit_checks(self, user_token, refresh_token):
         suffix = uuid.uuid4().hex[:12]

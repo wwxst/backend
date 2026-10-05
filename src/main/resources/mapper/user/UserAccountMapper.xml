@@ -134,6 +134,12 @@
         WHERE id = #{id}
     </update>
 
+    <update id="updateStatus">
+        UPDATE user_account
+        SET status = #{status}
+        WHERE id = #{id}
+    </update>
+
     <!-- 查询符合条件的用户总数 -->
     <select id="countByCondition"
             resultType="long">

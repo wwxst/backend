@@ -26,6 +26,7 @@
 | GET | `/api/sys-user/sys-users` | `SCOPE_admin` | 系统用户列表 |
 | GET | `/api/sys-user/users` | `SCOPE_admin` | 普通用户列表 |
 | PUT | `/api/sys-user/users/{id}` | `SCOPE_admin` | 编辑普通用户昵称、手机号和邮箱 |
+| PATCH | `/api/sys-user/users/{id}/status` | `SCOPE_admin` | 启用或停用普通用户 |
 | GET | `/api/sys-user/auth-channels` | `SCOPE_admin` | 查询渠道配置 |
 | PUT | `/api/sys-user/auth-channels/{channel}` | `SCOPE_admin` | 修改渠道配置 |
 | POST | `/api/user/auth/send-code` | 公开 | 发送验证码 |

@@ -94,6 +94,34 @@ class JwtSecurityTest {
         return tokens.createAccessToken(AccountType.SYS_USER, 1L, "session-admin", null);
     }
 
+    @Test
+    void ordinaryUserStatusRequiresAdminAccessAndValidStatus() throws Exception {
+        String path = "/api/sys-user/users/5/status";
+        for (int userStatus : List.of(0, 1)) {
+            mvc.perform(patch(path).contentType("application/json")
+                            .content("{\"status\":" + userStatus + "}")
+                            .header("Authorization", "Bearer " + adminAccessToken()))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(200));
+            verify(users).updateStatus(5L, userStatus);
+        }
+        clearInvocations(users);
+        for (String payload : List.of("{}", "{\"status\":-1}", "{\"status\":2}")) {
+            mvc.perform(patch(path).contentType("application/json").content(payload)
+                            .header("Authorization", "Bearer " + adminAccessToken()))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40000));
+        }
+        mvc.perform(patch(path).contentType("application/json").content("{\"status\":0}"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(patch(path).contentType("application/json").content("{\"status\":0}")
+                        .header("Authorization", "Bearer " + userAccessToken()))
+                .andExpect(status().isForbidden());
+        mvc.perform(patch(path).contentType("application/json").content("{\"status\":0}")
+                        .header("Authorization", "Bearer " + tokens.createRefreshToken(
+                                AccountType.SYS_USER, 1L, "session-admin", null)))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(users);
+    }
+
     private String userAccessToken() {
         return tokens.createAccessToken(AccountType.USER, 2L, "session-user", 0L);
     }

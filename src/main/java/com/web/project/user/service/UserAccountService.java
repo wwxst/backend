@@ -10,6 +10,9 @@ import com.web.project.user.vo.UserAccountListVO;
  */
 public interface UserAccountService {
 
+    /** 启停用指定普通用户。 */
+    void updateStatus(Long id, Integer status);
+
     UserAccountListVO updateUser(Long id, UpdateUserAccountDTO updateDTO);
 
     /**
