@@ -16,6 +16,7 @@ import com.web.project.channel.model.AuthChannelConfig;
 import com.web.project.channel.service.AuthChannelService;
 import com.web.project.common.error.ErrorCode;
 import com.web.project.common.exception.BusinessException;
+import com.web.project.common.id.SnowflakeIdGenerator;
 import com.web.project.user.entity.UserAccount;
 import com.web.project.user.mapper.UserAccountMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,6 +36,7 @@ class UserAuthServiceImplTest {
     private final AuthSessionService authSessionService = mock(AuthSessionService.class);
     private final VerificationCodeService verificationCodeService = mock(VerificationCodeService.class);
     private final AuthChannelService authChannelService = mock(AuthChannelService.class);
+    private final SnowflakeIdGenerator snowflakeIdGenerator = mock(SnowflakeIdGenerator.class);
     private final PasswordVerificationGuard passwordVerificationGuard = new PasswordVerificationGuard(
             new LoginProtectionProperties(8, Duration.ofSeconds(60), 60, 20),
             new LoginProtectionMetrics()
@@ -46,6 +48,7 @@ class UserAuthServiceImplTest {
             authSessionService,
             verificationCodeService,
             authChannelService,
+            snowflakeIdGenerator,
             passwordVerificationGuard
     );
 
@@ -64,17 +67,15 @@ class UserAuthServiceImplTest {
         return account;
     }
 
-    private void insertAssignsId(Long id) {
-        doAnswer(invocation -> {
-            ((UserAccount) invocation.getArgument(0)).setId(id);
-            return 1;
-        }).when(userAccountMapper).insert(any(UserAccount.class));
+    private void insertSucceeds() {
+        when(userAccountMapper.insert(any(UserAccount.class))).thenReturn(1);
     }
 
     @Test
     void registerWithPhoneCreatesAccountAndSession() {
         when(userAccountMapper.selectByPhone("13800138000")).thenReturn(null);
-        insertAssignsId(11L);
+        when(snowflakeIdGenerator.nextId()).thenReturn(11L);
+        insertSucceeds();
         when(passwordEncoder.encode("password123")).thenReturn("$hash");
         when(authSessionService.createSession(AccountType.USER, 11L, 0L))
                 .thenReturn(new TokenPairVO("access", "refresh"));
@@ -87,13 +88,14 @@ class UserAuthServiceImplTest {
         verify(verificationCodeService).verify(
                 VerificationScene.REGISTER, TargetType.PHONE, "13800138000", "123456"
         );
-        verify(userAccountMapper).insert(any(UserAccount.class));
+        verify(userAccountMapper).insert(argThat(account -> account.getId().equals(11L)));
     }
 
     @Test
     void registerWithEmailNormalizesTarget() {
         when(userAccountMapper.selectByEmail("user@example.com")).thenReturn(null);
-        insertAssignsId(12L);
+        when(snowflakeIdGenerator.nextId()).thenReturn(12L);
+        insertSucceeds();
         when(authSessionService.createSession(AccountType.USER, 12L, 0L))
                 .thenReturn(new TokenPairVO("access", "refresh"));
 
@@ -137,17 +139,16 @@ class UserAuthServiceImplTest {
     @Test
     void registerRetriesWhenUserNoConflicts() {
         when(userAccountMapper.selectByPhone(any())).thenReturn(null);
+        when(snowflakeIdGenerator.nextId()).thenReturn(13L);
         when(authSessionService.createSession(eq(AccountType.USER), eq(13L), eq(0L)))
                 .thenReturn(new TokenPairVO("access", "refresh"));
 
-        doThrow(new DuplicateKeyException("Duplicate entry '1' for key 'user_account.uk_user_account_user_no'"))
-                .doThrow(new DuplicateKeyException(
+        when(userAccountMapper.insert(any(UserAccount.class)))
+                .thenThrow(new DuplicateKeyException(
+                        "Duplicate entry '1' for key 'user_account.uk_user_account_user_no'"))
+                .thenThrow(new DuplicateKeyException(
                         "Duplicate entry '2' for key 'user_account.uk_user_account_user_no'"))
-                .doAnswer(invocation -> {
-                    ((UserAccount) invocation.getArgument(0)).setId(13L);
-                    return 1;
-                })
-                .when(userAccountMapper).insert(any(UserAccount.class));
+                .thenReturn(1);
 
         service.register(new UserRegisterDTO(
                 "13800138000", TargetType.PHONE, "123456", null

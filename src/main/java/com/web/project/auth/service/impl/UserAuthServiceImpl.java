@@ -20,6 +20,7 @@ import com.web.project.channel.model.AuthChannelConfig;
 import com.web.project.channel.service.AuthChannelService;
 import com.web.project.common.error.ErrorCode;
 import com.web.project.common.exception.BusinessException;
+import com.web.project.common.id.SnowflakeIdGenerator;
 import com.web.project.user.entity.UserAccount;
 import com.web.project.user.mapper.UserAccountMapper;
 import org.springframework.dao.DuplicateKeyException;
@@ -50,6 +51,7 @@ public class UserAuthServiceImpl implements UserAuthService {
     private final AuthSessionService authSessionService;
     private final VerificationCodeService verificationCodeService;
     private final AuthChannelService authChannelService;
+    private final SnowflakeIdGenerator snowflakeIdGenerator;
     private final PasswordVerificationGuard passwordVerificationGuard;
 
     @Autowired
@@ -59,6 +61,7 @@ public class UserAuthServiceImpl implements UserAuthService {
             AuthSessionService authSessionService,
             VerificationCodeService verificationCodeService,
             AuthChannelService authChannelService,
+            SnowflakeIdGenerator snowflakeIdGenerator,
             PasswordVerificationGuard passwordVerificationGuard
     ) {
         this.userAccountMapper = userAccountMapper;
@@ -66,6 +69,7 @@ public class UserAuthServiceImpl implements UserAuthService {
         this.authSessionService = authSessionService;
         this.verificationCodeService = verificationCodeService;
         this.authChannelService = authChannelService;
+        this.snowflakeIdGenerator = snowflakeIdGenerator;
         this.passwordVerificationGuard = passwordVerificationGuard;
     }
 
@@ -121,6 +125,7 @@ public class UserAuthServiceImpl implements UserAuthService {
             account.setPassword(passwordEncoder.encode(password));
         }
 
+        account.setId(snowflakeIdGenerator.nextId());
         insertAccount(account);
 
         // 与数据库中 password_version 的初始值一致。
