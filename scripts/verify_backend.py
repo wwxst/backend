@@ -402,12 +402,14 @@ class BackendGate:
         new_email = "edited-" + suffix + "@example.com"
         race_email = "edit-race-" + suffix + "@example.com"
         phone = "139" + str(secrets.randbelow(100000000)).zfill(8)
+        first_seed_id = 1_000_000_000_000 + secrets.randbelow(1_000_000_000_000)
+        second_seed_id = first_seed_id + 1
         self.sensitive.extend([first_email, second_email, new_email, race_email, phone])
-        self.sql("INSERT INTO user_account (user_no,email,password,password_version,nickname,avatar,status) "
-                 "SELECT 'edit-first-" + suffix + "','" + first_email + "',password,7,'before','/avatar.png',0 "
+        self.sql("INSERT INTO user_account (id,user_no,email,password,password_version,nickname,avatar,status) "
+                 "SELECT " + str(first_seed_id) + ",'edit-first-" + suffix + "','" + first_email + "',password,7,'before','/avatar.png',0 "
                  "FROM user_account WHERE email='" + self.email + "'")
-        self.sql("INSERT INTO user_account (user_no,email,nickname) "
-                 "VALUES ('edit-second-" + suffix + "','" + second_email + "','second')")
+        self.sql("INSERT INTO user_account (id,user_no,email,nickname) "
+                 "VALUES (" + str(second_seed_id) + ",'edit-second-" + suffix + "','" + second_email + "','second')")
         first_id = int(self.sql("SELECT id FROM user_account WHERE email='" + first_email + "'"))
         second_id = int(self.sql("SELECT id FROM user_account WHERE email='" + second_email + "'"))
         path = "/api/sys-user/users/" + str(first_id)

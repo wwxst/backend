@@ -90,6 +90,22 @@ class SnowflakeIdGeneratorTest {
     }
 
     @Test
+    void clockRollbackDuringSequenceWaitIsRejected() {
+        long timestamp = System.currentTimeMillis();
+        AtomicInteger clockCalls = new AtomicInteger();
+        LongSupplier clock = () -> clockCalls.getAndIncrement() < 4097
+                ? timestamp
+                : timestamp - 1;
+        SnowflakeIdGenerator generator = new SnowflakeIdGenerator(0, 0, clock);
+
+        for (int index = 0; index < 4096; index++) {
+            generator.nextId();
+        }
+
+        assertThrows(IllegalStateException.class, generator::nextId);
+    }
+
+    @Test
     void clockRollbackIsRejected() {
         AtomicLong clock = new AtomicLong(System.currentTimeMillis());
         SnowflakeIdGenerator generator = new SnowflakeIdGenerator(0, 0, clock::get);

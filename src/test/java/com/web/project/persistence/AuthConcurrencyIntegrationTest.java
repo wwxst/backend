@@ -88,6 +88,7 @@ class AuthConcurrencyIntegrationTest {
         try {
             List<Boolean> results = race(8, index -> {
                 UserAccount account = new UserAccount();
+                account.setId(10_000L + index);
                 account.setUserNo(UUID.randomUUID().toString().replace("-", ""));
                 account.setEmail(email);
                 try {

@@ -15,6 +15,7 @@ public final class SnowflakeIdGenerator {
     private static final int WORKER_ID_SHIFT = 12;
     private static final int DATACENTER_ID_SHIFT = 17;
     private static final int TIMESTAMP_SHIFT = 22;
+    private static final String CLOCK_ROLLBACK_MESSAGE = "系统时钟发生回拨，无法安全生成 Snowflake ID";
 
     private final long datacenterId;
     private final long workerId;
@@ -50,7 +51,7 @@ public final class SnowflakeIdGenerator {
             throw new IllegalStateException("当前时间早于 Snowflake ID 起始时间");
         }
         if (timestamp < lastTimestamp) {
-            throw new IllegalStateException("系统时钟发生回拨，无法安全生成 Snowflake ID");
+            throw new IllegalStateException(CLOCK_ROLLBACK_MESSAGE);
         }
 
         if (timestamp == lastTimestamp) {
@@ -73,6 +74,9 @@ public final class SnowflakeIdGenerator {
         long timestamp;
         do {
             timestamp = currentTimeMillis.getAsLong();
+            if (timestamp < previousTimestamp) {
+                throw new IllegalStateException(CLOCK_ROLLBACK_MESSAGE);
+            }
         } while (timestamp <= previousTimestamp);
         return timestamp;
     }
