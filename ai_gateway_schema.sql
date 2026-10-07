@@ -7,12 +7,12 @@
 
 USE web_project;
 
-/* 用户钱包：金额单位为 micro-CNY，1 CNY = 1,000,000 micro-CNY。 */
+/* 用户钱包：余额和消费单位为积分，1 CNY = 10 points。 */
 CREATE TABLE ai_wallet
 (
-    user_id              BIGINT UNSIGNED NOT NULL COMMENT '普通用户ID，不创建外键',
-    available_micro_cny  BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '可用余额，单位微元',
-    reserved_micro_cny   BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '请求冻结金额，单位微元',
+    user_id          BIGINT UNSIGNED NOT NULL COMMENT '普通用户ID，不创建外键',
+    available_points BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '可用积分',
+    reserved_points  BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '请求冻结积分',
     created_at           DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at           DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
 
@@ -93,10 +93,10 @@ CREATE TABLE ai_model_price
     id                       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '模型价格ID',
     model_id                 BIGINT UNSIGNED NOT NULL COMMENT '模型ID，不创建外键',
     price_band               VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'STANDARD、PEAK 或 OFF_PEAK',
-    upstream_input_cost      BIGINT UNSIGNED NOT NULL COMMENT '上游输入成本，微元/百万Token',
-    upstream_output_cost     BIGINT UNSIGNED NOT NULL COMMENT '上游输出成本，微元/百万Token',
-    base_input_sale_price    BIGINT UNSIGNED NOT NULL COMMENT '基础输入售价，微元/百万Token',
-    base_output_sale_price   BIGINT UNSIGNED NOT NULL COMMENT '基础输出售价，微元/百万Token',
+    upstream_input_cost_points    BIGINT UNSIGNED NOT NULL COMMENT '上游输入成本，积分/百万Token',
+    upstream_output_cost_points   BIGINT UNSIGNED NOT NULL COMMENT '上游输出成本，积分/百万Token',
+    base_input_sale_price_points  BIGINT UNSIGNED NOT NULL COMMENT '基础输入售价，积分/百万Token',
+    base_output_sale_price_points BIGINT UNSIGNED NOT NULL COMMENT '基础输出售价，积分/百万Token',
     billing_multiplier_ppm   BIGINT UNSIGNED NOT NULL DEFAULT 1000000 COMMENT '计费倍率，百万分比；1000000表示1.0',
     created_at               DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at               DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -123,20 +123,20 @@ CREATE TABLE ai_gateway_request
     upstream_channel_id             BIGINT UNSIGNED NOT NULL COMMENT '上游通道ID快照，不创建外键',
     endpoint_type                   VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'CHAT_COMPLETIONS、RESPONSES 或 MESSAGES',
     price_band                      VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '生效价格档位快照',
-    upstream_input_cost_snapshot    BIGINT UNSIGNED NOT NULL COMMENT '上游输入成本快照，微元/百万Token',
-    upstream_output_cost_snapshot   BIGINT UNSIGNED NOT NULL COMMENT '上游输出成本快照，微元/百万Token',
-    base_input_sale_price_snapshot  BIGINT UNSIGNED NOT NULL COMMENT '基础输入售价快照，微元/百万Token',
-    base_output_sale_price_snapshot BIGINT UNSIGNED NOT NULL COMMENT '基础输出售价快照，微元/百万Token',
+    upstream_input_cost_points_snapshot    BIGINT UNSIGNED NOT NULL COMMENT '上游输入成本快照，积分/百万Token',
+    upstream_output_cost_points_snapshot   BIGINT UNSIGNED NOT NULL COMMENT '上游输出成本快照，积分/百万Token',
+    base_input_sale_price_points_snapshot  BIGINT UNSIGNED NOT NULL COMMENT '基础输入售价快照，积分/百万Token',
+    base_output_sale_price_points_snapshot BIGINT UNSIGNED NOT NULL COMMENT '基础输出售价快照，积分/百万Token',
     billing_multiplier_ppm_snapshot BIGINT UNSIGNED NOT NULL COMMENT '计费倍率快照，百万分比',
-    user_input_price_snapshot       BIGINT UNSIGNED NOT NULL COMMENT '最终用户输入售价快照，微元/百万Token',
-    user_output_price_snapshot      BIGINT UNSIGNED NOT NULL COMMENT '最终用户输出售价快照，微元/百万Token',
-    reserved_micro_cny              BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '预授权金额，单位微元',
+    user_input_price_points_snapshot  BIGINT UNSIGNED NOT NULL COMMENT '最终用户输入售价快照，积分/百万Token',
+    user_output_price_points_snapshot BIGINT UNSIGNED NOT NULL COMMENT '最终用户输出售价快照，积分/百万Token',
+    reserved_points                    BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '预授权积分',
     input_tokens                    BIGINT UNSIGNED DEFAULT NULL COMMENT '实际输入Token数',
     output_tokens                   BIGINT UNSIGNED DEFAULT NULL COMMENT '实际输出Token数',
     total_tokens                    BIGINT UNSIGNED DEFAULT NULL COMMENT '实际总Token数',
-    upstream_cost_micro_cny         BIGINT UNSIGNED DEFAULT NULL COMMENT '上游成本，单位微元',
-    user_charge_micro_cny           BIGINT UNSIGNED DEFAULT NULL COMMENT '用户扣费，单位微元',
-    margin_micro_cny                BIGINT          DEFAULT NULL COMMENT '差额，用户扣费减上游成本，单位微元',
+    upstream_cost_points             BIGINT UNSIGNED DEFAULT NULL COMMENT '上游成本，单位积分',
+    user_charge_points               BIGINT UNSIGNED DEFAULT NULL COMMENT '用户扣费，单位积分',
+    margin_points                    BIGINT          DEFAULT NULL COMMENT '差额，用户扣费减上游成本，单位积分',
     upstream_request_id             VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin DEFAULT NULL COMMENT '上游请求ID',
     status                          VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '请求状态',
     failure_code                    VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin DEFAULT NULL COMMENT '失败业务码或补偿原因',
@@ -168,19 +168,19 @@ CREATE TABLE ai_usage_record
     upstream_channel_id             BIGINT UNSIGNED NOT NULL COMMENT '上游通道ID快照，不创建外键',
     endpoint_type                   VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '协议类型快照',
     price_band                      VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '价格档位快照',
-    upstream_input_cost_snapshot    BIGINT UNSIGNED NOT NULL COMMENT '上游输入成本快照，微元/百万Token',
-    upstream_output_cost_snapshot   BIGINT UNSIGNED NOT NULL COMMENT '上游输出成本快照，微元/百万Token',
-    base_input_sale_price_snapshot  BIGINT UNSIGNED NOT NULL COMMENT '基础输入售价快照，微元/百万Token',
-    base_output_sale_price_snapshot BIGINT UNSIGNED NOT NULL COMMENT '基础输出售价快照，微元/百万Token',
+    upstream_input_cost_points_snapshot    BIGINT UNSIGNED NOT NULL COMMENT '上游输入成本快照，积分/百万Token',
+    upstream_output_cost_points_snapshot   BIGINT UNSIGNED NOT NULL COMMENT '上游输出成本快照，积分/百万Token',
+    base_input_sale_price_points_snapshot  BIGINT UNSIGNED NOT NULL COMMENT '基础输入售价快照，积分/百万Token',
+    base_output_sale_price_points_snapshot BIGINT UNSIGNED NOT NULL COMMENT '基础输出售价快照，积分/百万Token',
     billing_multiplier_ppm_snapshot BIGINT UNSIGNED NOT NULL COMMENT '计费倍率快照，百万分比',
-    user_input_price_snapshot       BIGINT UNSIGNED NOT NULL COMMENT '最终用户输入售价快照，微元/百万Token',
-    user_output_price_snapshot      BIGINT UNSIGNED NOT NULL COMMENT '最终用户输出售价快照，微元/百万Token',
+    user_input_price_points_snapshot  BIGINT UNSIGNED NOT NULL COMMENT '最终用户输入售价快照，积分/百万Token',
+    user_output_price_points_snapshot BIGINT UNSIGNED NOT NULL COMMENT '最终用户输出售价快照，积分/百万Token',
     input_tokens                    BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '输入Token数',
     output_tokens                   BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '输出Token数',
     total_tokens                    BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '总Token数',
-    upstream_cost_micro_cny         BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '上游成本，单位微元',
-    user_charge_micro_cny           BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '用户扣费，单位微元',
-    margin_micro_cny                BIGINT          NOT NULL DEFAULT 0 COMMENT '差额，用户扣费减上游成本，单位微元',
+    upstream_cost_points             BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '上游成本，单位积分',
+    user_charge_points               BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '用户扣费，单位积分',
+    margin_points                    BIGINT          NOT NULL DEFAULT 0 COMMENT '差额，用户扣费减上游成本，单位积分',
     status                          VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '用量状态',
     created_at                      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
 
@@ -196,15 +196,16 @@ CREATE TABLE ai_usage_record
   DEFAULT CHARSET = utf8mb4
     COMMENT = 'AI 网关 Token 用量和成本统计';
 
-/* 不可变账务流水：amount_change 有符号，支持充值、扣费、退款和管理员调整。 */
+/* 不可变账务流水：积分变化有符号，支持充值、扣费、退款和管理员调整。 */
 CREATE TABLE ai_billing_transaction
 (
     id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '账务流水ID',
     user_id               BIGINT UNSIGNED NOT NULL COMMENT '普通用户ID，不创建外键',
     request_id            VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin DEFAULT NULL COMMENT '关联网关请求ID',
     transaction_type      VARCHAR(20) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'TOP_UP、CONSUMPTION、REFUND 或 ADJUSTMENT',
-    amount_change_micro_cny BIGINT NOT NULL COMMENT '余额变化，单位微元；扣费为负数',
-    balance_after_micro_cny BIGINT UNSIGNED NOT NULL COMMENT '流水完成后的可用余额，单位微元',
+    amount_change_points  BIGINT NOT NULL COMMENT '积分变化；扣费为负数',
+    balance_after_points  BIGINT UNSIGNED NOT NULL COMMENT '流水完成后的可用积分',
+    recharge_amount_fen  BIGINT UNSIGNED DEFAULT NULL COMMENT '充值对应的人民币金额，单位分；非充值流水为空',
     operation_id          VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin DEFAULT NULL COMMENT '充值或调整操作幂等ID',
     operator_user_id      BIGINT UNSIGNED DEFAULT NULL COMMENT '管理员操作人ID，不创建外键',
     description           VARCHAR(255) DEFAULT NULL COMMENT '业务备注，不保存完整请求内容',
@@ -216,7 +217,7 @@ CREATE TABLE ai_billing_transaction
     KEY idx_ai_billing_transaction_user_created (user_id, created_at),
     KEY idx_ai_billing_transaction_type_created (transaction_type, created_at),
     CONSTRAINT chk_ai_billing_transaction_type CHECK (transaction_type IN ('TOP_UP', 'CONSUMPTION', 'REFUND', 'ADJUSTMENT')),
-    CONSTRAINT chk_ai_billing_transaction_amount CHECK (amount_change_micro_cny <> 0)
+    CONSTRAINT chk_ai_billing_transaction_amount CHECK (amount_change_points <> 0)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
     COMMENT = 'AI 网关不可变账务流水';

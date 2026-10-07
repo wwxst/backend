@@ -43,8 +43,8 @@
 - 数据库结构和初始数据的唯一事实来源是 `backend/web_project.sql`，不新增迁移脚本。
 - Controller 只处理 HTTP 输入、认证上下文和响应；Service 负责业务规则与事务；Mapper 负责 MyBatis 数据访问。
 - 数据库表保持零外键约束，使用 ID、唯一键和业务事务维护关联。
-- 金额继续使用整数微元：`1 CNY = 1,000,000 micro-CNY`。
-- 倍率、价格和成本不使用 `float` 或 `double`。
+- 用户钱包和消费统一使用整数积分：`1 CNY = 10 points`。
+- 倍率、价格、成本和积分计算不使用 `float` 或 `double`。
 - 上游 API Key 使用现有部署密钥加密能力保存，数据库和日志不出现明文。
 
 ## 3. 系统职责边界
@@ -317,15 +317,15 @@ OFF_PEAK
 用户最终售价 = 基础售价 × 计费倍率
 ```
 
-### 8.1 金额单位
+### 8.1 积分单位
 
-所有金额保存为整数微元：
+用户充值和模型消费统一使用积分：
 
 ```text
-1 CNY = 1,000,000 micro-CNY
+1 CNY = 10 points
 ```
 
-价格单位为每百万 Token 对应的微元。
+钱包、预授权、消费、退款、`upstreamCost`、`userCharge` 和 `margin` 都保存为整数积分。价格单位为每百万 Token 对应的积分。充值入口接收人民币金额或支付回调金额时，服务端按整数分转换为积分；例如 100 分人民币转换为 10 积分。账务层不把人民币金额和积分放在同一个余额字段中。
 
 ### 8.2 倍率单位
 
@@ -342,8 +342,8 @@ OFF_PEAK
 设 `SCALE = 1,000,000`：
 
 ```text
-userInputPrice = ceil(baseInputSalePrice × billingMultiplierPpm / SCALE)
-userOutputPrice = ceil(baseOutputSalePrice × billingMultiplierPpm / SCALE)
+userInputPricePoints = ceil(baseInputSalePricePoints × billingMultiplierPpm / SCALE)
+userOutputPricePoints = ceil(baseOutputSalePricePoints × billingMultiplierPpm / SCALE)
 ```
 
 ### 8.3 上游成本、用户扣费和差额
@@ -351,26 +351,26 @@ userOutputPrice = ceil(baseOutputSalePrice × billingMultiplierPpm / SCALE)
 上游成本不再使用 `officialCost`，统一使用 `upstreamCost`：
 
 ```text
-upstreamCost
-  = ceil(inputTokens × upstreamInputCost / 1,000,000)
-  + ceil(outputTokens × upstreamOutputCost / 1,000,000)
+upstreamCostPoints
+  = ceil(inputTokens × upstreamInputCostPoints / 1,000,000)
+  + ceil(outputTokens × upstreamOutputCostPoints / 1,000,000)
 ```
 
 用户扣费：
 
 ```text
-userCharge
-  = ceil(inputTokens × userInputPrice / 1,000,000)
-  + ceil(outputTokens × userOutputPrice / 1,000,000)
+userChargePoints
+  = ceil(inputTokens × userInputPricePoints / 1,000,000)
+  + ceil(outputTokens × userOutputPricePoints / 1,000,000)
 ```
 
 差额：
 
 ```text
-margin = userCharge - upstreamCost
+marginPoints = userChargePoints - upstreamCostPoints
 ```
 
-Sub2API 首期一般只返回 Token usage，不一定返回成本金额。因此 `upstreamCost` 使用 `ai_model_price` 中保存的上游输入/输出成本计算。
+Sub2API 首期一般只返回 Token usage，不一定返回成本金额。因此 `upstreamCostPoints` 使用 `ai_model_price` 中保存的上游输入/输出成本积分价格计算。三项统计字段对外仍命名为 `upstreamCost`、`userCharge` 和 `margin`，但其数值单位统一为积分。
 
 未来官方直连时，官方实际成本仍然写入 `upstreamCost`，不修改钱包、账务或统计结构。
 
@@ -396,14 +396,14 @@ ai.gateway.current-price-band
 4. 校验绑定上游通道存在且启用。
 5. 选择当前价格档位。
 6. 保存官方模型、上游模型、通道和价格快照。
-7. 根据请求字节数和 `max_tokens` 计算保守的预授权金额。
+7. 根据请求字节数和 `max_tokens` 计算保守的预授权积分。
 8. 原子冻结用户余额。
 9. 调用 Sub2API。
 10. 转发 JSON 或 SSE 响应。
 11. 读取输入/输出 Token usage。
 12. 计算 `upstreamCost`、`userCharge` 和 `margin`。
 13. 写入用量记录和消费流水。
-14. 从冻结金额扣除实际用户费用，并退回差额。
+14. 从冻结积分扣除实际用户费用，并退回差额积分。
 
 余额不足时不调用上游、不创建消费流水。
 
@@ -424,8 +424,8 @@ ai.gateway.current-price-band
 | 字段 | 说明 |
 | --- | --- |
 | `user_id` | 普通用户 ID，主键 |
-| `available_micro_cny` | 可用余额 |
-| `reserved_micro_cny` | 冻结金额 |
+| `available_points` | 可用积分 |
+| `reserved_points` | 冻结积分 |
 | `created_at` | 创建时间 |
 | `updated_at` | 更新时间 |
 
@@ -481,10 +481,10 @@ ai.gateway.current-price-band
 | `id` | 价格 ID |
 | `model_id` | 模型 ID |
 | `price_band` | `STANDARD`、`PEAK`、`OFF_PEAK` |
-| `upstream_input_cost` | 上游输入成本，微元/百万 Token |
-| `upstream_output_cost` | 上游输出成本，微元/百万 Token |
-| `base_input_sale_price` | 基础输入售价，微元/百万 Token |
-| `base_output_sale_price` | 基础输出售价，微元/百万 Token |
+| `upstream_input_cost_points` | 上游输入成本，积分/百万 Token |
+| `upstream_output_cost_points` | 上游输出成本，积分/百万 Token |
+| `base_input_sale_price_points` | 基础输入售价，积分/百万 Token |
+| `base_output_sale_price_points` | 基础输出售价，积分/百万 Token |
 | `billing_multiplier_ppm` | 百万分比整数倍率 |
 | `created_at` | 创建时间 |
 | `updated_at` | 更新时间 |
@@ -508,7 +508,7 @@ ai.gateway.current-price-band
 - 基础输入/输出售价快照
 - 倍率快照
 - 最终用户输入/输出售价快照
-- 预授权金额
+- 预授权积分
 - input/output/total token
 - `upstream_cost`
 - `user_charge`
@@ -541,8 +541,8 @@ USAGE_MISSING
 - `endpoint_type`
 - `price_band`
 - input/output/total token
-- 上游输入/输出成本价格快照
-- 基础输入/输出售价快照
+- 上游输入/输出成本积分价格快照
+- 基础输入/输出售价积分快照
 - 倍率快照
 - 最终用户输入/输出售价快照
 - `upstreamCost`
@@ -559,8 +559,9 @@ USAGE_MISSING
 - 用户 ID
 - 请求 ID
 - 类型
-- 正负金额变化
-- 变更后可用余额
+- 正负积分变化
+- 变更后可用积分
+- 充值对应的人民币分金额（充值流水可选）
 - 操作人
 - 幂等操作 ID
 - 备注
@@ -657,6 +658,7 @@ GET /api/user/billing/usage/summary
 - `STANDARD`、`PEAK`、`OFF_PEAK` 选择正确。
 - 没有峰谷价格的模型使用 `STANDARD`。
 - 倍率百万分比整数计算正确。
+- `1` 元充值转换为 `10` 积分，充值金额和积分不使用浮点计算。
 - 输入和输出分别计价，舍入结果正确。
 - `upstreamCost`、`userCharge`、`margin` 计算正确。
 - 修改价格、倍率、模型映射或通道后，历史快照不变。
@@ -669,7 +671,7 @@ GET /api/user/billing/usage/summary
 - 上游失败释放全部冻结金额。
 - 重复 `requestId` 或 `Idempotency-Key` 不重复扣费。
 - 并发预授权时余额不能为负。
-- 消费流水、用量记录和最终钱包余额一致。
+- 消费流水、用量记录和最终钱包积分一致。
 - 充值和管理员调整具有幂等性。
 
 ### 上游和协议
