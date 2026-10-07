@@ -10,11 +10,11 @@
 --   nickname  —— 随机中文姓名（如 张伟、李娜），互不相同
 --   created_at/updated_at —— 最近 60 天内随机错位分布，互不相同且 updated_at >= created_at
 --
--- 前置条件：目标库 sys_user 表无同批数据（username 为唯一键，重复执行会报 1062）
--- 本文件为纯插入，不含 DELETE / TRUNCATE
+-- 可重复执行：使用 INSERT IGNORE，username 已存在的行会被跳过，缺失的才插入。
+-- 不删除、不修改任何已有数据，不含 DELETE / TRUNCATE。
 -- ============================================================
 
-INSERT INTO sys_user (username, password, nickname, status, created_at, updated_at)
+INSERT IGNORE INTO sys_user (username, password, nickname, status, created_at, updated_at)
 VALUES
 ('u10020', '$2a$10$gqznYBmp4FWgfAFVhrpRReRv.YI0EE4Ysyy46.Ts186.SMw7HRlFm', '杨静', 1, '2026-08-07 15:58:00', '2026-08-10 14:16:00'),
 ('u10012', '$2a$10$gqznYBmp4FWgfAFVhrpRReRv.YI0EE4Ysyy46.Ts186.SMw7HRlFm', '崔茜', 1, '2026-08-08 12:57:00', '2026-08-11 06:34:00'),

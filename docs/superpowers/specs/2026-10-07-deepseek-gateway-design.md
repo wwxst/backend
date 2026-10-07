@@ -261,12 +261,15 @@ API Key 只用于 `/v1/*` 网关接口，不能替代用户 Access Token 调用�
 | 字段 | 说明 |
 | --- | --- |
 | `name` | 通道名称，例如 `Claude-Kiro` |
-| `type` | 本期固定为 `SUB2API` |
+| `channelType` | 上游实现类型，本期固定为 `SUB2API` |
+| `protocolType` | API 协议类型：`CHAT_COMPLETIONS`、`RESPONSES` 或 `MESSAGES` |
 | `baseUrl` | Sub2API 地址 |
 | `encryptedApiKey` | 加密保存的 API Key |
 | `enabled` | 是否启用 |
 
 一个公开模型首期固定绑定一个通道。禁用通道后，绑定模型不能调用上游。
+
+一条通道首期固定使用一种 API 协议。`protocolType` 决定请求和响应格式；`channelType` 决定后端使用哪一种上游实现。以后接入其他供应商时，可以复用三种协议类型，只新增对应的上游实现和路由客户端。
 
 不实现多 Key 自动轮询、账号池、自动故障切换和动态负载均衡。
 
@@ -292,6 +295,8 @@ MESSAGES
 ```
 
 本期只实现 `CHAT_COMPLETIONS`，但 `AiGatewayService`、`UpstreamRouter` 和 `UpstreamClient` 不应把所有业务逻辑写死为 Chat Completions。后续新增 `/v1/responses` 或 `/v1/messages` 时，只增加对应的请求/响应适配和客户端能力。
+
+通道配置中的 `protocolType` 是协议能力声明；网关收到请求后，必须校验请求的 `endpointType` 与通道协议一致，再交给对应的协议适配器处理。`ai_gateway_request.endpoint_type` 保存本次实际使用的协议快照。
 
 ## 8. 价格档位和计费模型
 
@@ -452,7 +457,8 @@ ai.gateway.current-price-band
 | --- | --- |
 | `id` | 通道 ID |
 | `name` | 通道名称，唯一 |
-| `type` | `SUB2API` |
+| `channel_type` | 上游实现类型，本期为 `SUB2API` |
+| `protocol_type` | API 协议类型：`CHAT_COMPLETIONS`、`RESPONSES` 或 `MESSAGES` |
 | `base_url` | Sub2API Base URL |
 | `encrypted_api_key` | 加密后的 Sub2API API Key |
 | `enabled` | 是否启用 |
@@ -752,6 +758,7 @@ GET /api/user/billing/usage/summary
 - `modelFamily`
 - `upstreamModel`
 - `endpointType`
+- `protocolType`
 - `priceBand`
 - 基础销售价
 - 整数计费倍率

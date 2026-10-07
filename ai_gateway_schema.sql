@@ -48,7 +48,8 @@ CREATE TABLE ai_upstream_channel
 (
     id                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '上游通道ID',
     name               VARCHAR(100)    NOT NULL COMMENT '通道名称',
-    type               VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '上游类型，本期为 SUB2API',
+    channel_type       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '上游实现类型，本期为 SUB2API',
+    protocol_type      VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'API 协议类型：CHAT_COMPLETIONS、RESPONSES 或 MESSAGES',
     base_url           VARCHAR(512)    NOT NULL COMMENT '上游 Base URL',
     encrypted_api_key  VARCHAR(1024)   NOT NULL COMMENT '加密后的上游 API Key',
     enabled            TINYINT         NOT NULL DEFAULT 1 COMMENT '状态：1启用，0禁用',
@@ -57,8 +58,9 @@ CREATE TABLE ai_upstream_channel
 
     PRIMARY KEY (id),
     UNIQUE KEY uk_ai_upstream_channel_name (name),
-    KEY idx_ai_upstream_channel_type_enabled (type, enabled),
-    CONSTRAINT chk_ai_upstream_channel_type CHECK (type IN ('SUB2API')),
+    KEY idx_ai_upstream_channel_channel_type_enabled (channel_type, enabled),
+    CONSTRAINT chk_ai_upstream_channel_channel_type CHECK (channel_type IN ('SUB2API')),
+    CONSTRAINT chk_ai_upstream_channel_protocol CHECK (protocol_type IN ('CHAT_COMPLETIONS', 'RESPONSES', 'MESSAGES')),
     CONSTRAINT chk_ai_upstream_channel_enabled CHECK (enabled IN (0, 1))
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
