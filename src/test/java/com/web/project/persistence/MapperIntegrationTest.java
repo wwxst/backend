@@ -51,8 +51,8 @@ class MapperIntegrationTest {
     @Test
     void enableDisableAndRepeatedStatusWritesPreserveOtherAccountFields() {
         jdbcTemplate.update("""
-                INSERT INTO user_account (user_no, phone, email, password, password_version, nickname, avatar)
-                VALUES ('status-user', '13800138909', 'status-test@example.com', 'test-hash', 7,
+                INSERT INTO user_account (id, user_no, phone, email, password, password_version, nickname, avatar)
+                VALUES (1001, 'status-user', '13800138909', 'status-test@example.com', 'test-hash', 7,
                         '状态测试', '/avatar.png')
                 """);
         Long id = jdbcTemplate.queryForObject("SELECT id FROM user_account WHERE user_no = 'status-user'", Long.class);
@@ -78,8 +78,8 @@ class MapperIntegrationTest {
     @Test
     void adminEditPreservesProtectedFieldsAndAllowsDisabledAccountAndContactRemoval() {
         jdbcTemplate.update("""
-                INSERT INTO user_account (user_no, phone, email, password, password_version, nickname, avatar, status)
-                VALUES ('admin-edit-user', '13800138901', 'before-edit@example.com', 'test-hash', 7,
+                INSERT INTO user_account (id, user_no, phone, email, password, password_version, nickname, avatar, status)
+                VALUES (1002, 'admin-edit-user', '13800138901', 'before-edit@example.com', 'test-hash', 7,
                         '原昵称', '/avatar.png', 0)
                 """);
         Long id = jdbcTemplate.queryForObject(
@@ -109,9 +109,9 @@ class MapperIntegrationTest {
     @Test
     void adminContactConflictsAreBusinessErrorsAndDoNotPartiallyUpdate() {
         jdbcTemplate.update("""
-                INSERT INTO user_account (user_no, phone, email, nickname)
-                VALUES ('edit-first', '13800138903', 'edit-first@example.com', '原昵称'),
-                       ('edit-second', '13800138904', 'edit-second@example.com', '占用')
+                INSERT INTO user_account (id, user_no, phone, email, nickname)
+                VALUES (1003, 'edit-first', '13800138903', 'edit-first@example.com', '原昵称'),
+                       (1004, 'edit-second', '13800138904', 'edit-second@example.com', '占用')
                 """);
         Long id = jdbcTemplate.queryForObject("SELECT id FROM user_account WHERE user_no = 'edit-first'", Long.class);
         for (var dto : List.of(
@@ -133,11 +133,12 @@ class MapperIntegrationTest {
     @Test
     void userMappingAndRepeatedWritesPreserveDatabaseContract() {
         UserAccount account = new UserAccount();
+        account.setId(1234567890123L);
         account.setUserNo("123456");
         account.setPhone("13800138000");
         account.setEmail("audit@example.com");
         assertEquals(1, userAccountMapper.insert(account));
-        assertNotNull(account.getId());
+        assertEquals(1234567890123L, account.getId());
 
         Long id = account.getId();
         UserAccount stored = userAccountMapper.selectById(id);
@@ -174,10 +175,10 @@ class MapperIntegrationTest {
     @Test
     void userCreatedAtSortingIsStableAcrossPages() {
         jdbcTemplate.update("""
-                INSERT INTO user_account (user_no, nickname, status, created_at)
-                VALUES ('sort-user-new', '普通排序新', 1, '2026-10-03 12:00:00'),
-                       ('sort-user-old', '普通排序旧', 1, '2026-10-01 12:00:00'),
-                       ('sort-user-tie', '普通排序同时间', 0, '2026-10-01 12:00:00')
+                INSERT INTO user_account (id, user_no, nickname, status, created_at)
+                VALUES (1007, 'sort-user-new', '普通排序新', 1, '2026-10-03 12:00:00'),
+                       (1005, 'sort-user-old', '普通排序旧', 1, '2026-10-01 12:00:00'),
+                       (1006, 'sort-user-tie', '普通排序同时间', 0, '2026-10-01 12:00:00')
                 """);
 
         assertEquals(List.of("sort-user-old", "sort-user-tie", "sort-user-new"),

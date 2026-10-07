@@ -31,7 +31,7 @@ public interface UserAccountMapper {
     UserAccount selectByEmail(@Param("email") String email);
 
     /**
-     * 创建普通用户账号，主键写回实体。
+     * 创建普通用户账号，主键由调用方预先生成。
      */
     int insert(UserAccount userAccount);
 

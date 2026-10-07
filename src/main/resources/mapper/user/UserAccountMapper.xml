@@ -87,13 +87,11 @@
         LIMIT 1
     </select>
 
-    <!-- 创建用户账号，主键写回实体 -->
+    <!-- 创建用户账号，主键由服务端预先生成 -->
     <insert id="insert"
-            parameterType="com.web.project.user.entity.UserAccount"
-            useGeneratedKeys="true"
-            keyProperty="id">
-        INSERT INTO user_account (user_no, phone, email, password, nickname)
-        VALUES (#{userNo}, #{phone}, #{email}, #{password}, #{nickname})
+            parameterType="com.web.project.user.entity.UserAccount">
+        INSERT INTO user_account (id, user_no, phone, email, password, nickname)
+        VALUES (#{id}, #{userNo}, #{phone}, #{email}, #{password}, #{nickname})
     </insert>
 
     <!-- 更新密码并递增密码版本 -->

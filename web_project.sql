@@ -30,7 +30,7 @@ VALUES ('admin', '$2a$10$gqznYBmp4FWgfAFVhrpRReRv.YI0EE4Ysyy46.Ts186.SMw7HRlFm',
 
 CREATE TABLE user_account
 (
-    id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '用户ID',
+    id               BIGINT UNSIGNED NOT NULL COMMENT '用户ID，由服务端生成 Snowflake ID',
     user_no          VARCHAR(32)     NOT NULL COMMENT '对外展示号码，不参与登录和鉴权',
     phone            VARCHAR(20)              DEFAULT NULL COMMENT '中国大陆手机号',
     email            VARCHAR(100)             DEFAULT NULL COMMENT '邮箱',
