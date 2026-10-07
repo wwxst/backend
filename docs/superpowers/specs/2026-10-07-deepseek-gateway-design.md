@@ -1,239 +1,769 @@
-# DeepSeek 付费 API 中转设计
+# 多模型付费 API 网关设计（Sub2API 上游）
 
 ## 1. 目标与范围
 
-本期在现有 Spring Boot 单体后端中增加一条 DeepSeek API 中转链路，向已登录的普通用户提供 OpenAI/DeepSeek 兼容的聊天补全接口，并按实际 token 用量扣费。
+本期在现有 Spring Boot 单体后端中增加多模型付费 API 网关。用户和 Agent 永远只访问我们自己的 backend，backend 再将请求转发到已部署的 Sub2API。
+
+调用链如下：
+
+```text
+用户 / Agent
+    -> 我们的 Spring Boot backend
+    -> UpstreamRouter
+    -> Sub2ApiClient
+    -> Sub2API
+    -> Claude / GPT / Gemini / DeepSeek 等模型
+```
 
 本期目标：
 
-- 支持 `POST /v1/chat/completions` 和 `GET /v1/models`。
-- 支持非流式 JSON 和 SSE 流式响应。
-- 使用 DeepSeek 返回的 `usage` 统计输入、输出和总 token。
-- 维护普通用户余额、预授权、消费流水、用量记录和余额不足控制。
-- 以 DeepSeek 官方输入/输出价格作为成本基础，通过整数计费倍率计算用户价格。
-- 提供管理员配置 DeepSeek、维护官方价格和计费倍率、给用户充值/调整余额以及查询账务的接口。
-- 保留现有用户、系统用户和 JWT 鉴权边界，不将 DeepSeek API Key 暴露给客户端。
+- 提供统一的 `POST /v1/chat/completions` 和 `GET /v1/models`。
+- 支持多个公开模型、公开模型名与上游模型名映射。
+- 支持不同 Sub2API 上游通道，每个模型首期固定绑定一个通道。
+- 维护用户 API Key 的创建、查询、撤销和网关鉴权。
+- 维护用户钱包、余额、预授权、冻结、实际 usage 结算、消费流水和补偿。
+- 按价格档位、基础售价和整数计费倍率计算用户消费。
+- 同时保存和统计 `upstreamCost`、`userCharge` 和 `margin`。
+- 保留 `/v1/responses`、`/v1/messages` 的内部扩展边界，但本期不实现这两个协议。
 
-明确不在本期实现：
+本期明确不实现：
 
-- DeepSeek 多账号、额度池、账号轮询和故障切换。
-- 其他模型供应商的配置与路由。
-- 独立网关服务、消息队列和异步账单服务。
-- 长期用户 API Key 生命周期。首期沿用普通用户 Access Token；后续需要长期调用凭据时单独设计 API Key 的创建、轮换和撤销。
-- 管理端前端页面。先完成后端接口、数据库结构和接口文档，现有控制台后续接入。
+- 各模型官方 API 的直接接入。
+- Sub2API 账号池、多 Key 轮询、自动故障切换和上游额度调度。
+- 复杂 API Key 配额、IP 白名单、细粒度模型权限和轮换策略。
+- 消息队列、独立网关微服务和异步账单服务。
+- 管理端前端页面。
+
+后续增加 OpenAI、Anthropic、DeepSeek 等官方直连时，只新增对应的 `UpstreamClient` 和通道类型，不改变用户接口、钱包和账务结构。
 
 ## 2. 现有系统约束
 
-- 后端使用 Spring Boot 4、Spring MVC、MyBatis、MySQL 和 Redis。
-- 普通用户 Access Token 含 `SCOPE_user`，系统用户管理接口含 `SCOPE_admin`。
-- 数据库结构和初始配置的唯一事实来源是 `backend/web_project.sql`，不新增迁移脚本。
+- 后端使用 Spring Boot 4、Spring MVC、MyBatis、MySQL、Redis 和 JWT。
+- 普通用户 Access Token 含 `SCOPE_user`，系统用户接口含 `SCOPE_admin`。
+- 数据库结构和初始数据的唯一事实来源是 `backend/web_project.sql`，不新增迁移脚本。
 - Controller 只处理 HTTP 输入、认证上下文和响应；Service 负责业务规则与事务；Mapper 负责 MyBatis 数据访问。
-- 金额不得使用 `float` 或 `double`。本设计使用整数微元保存金额：`1 CNY = 1,000,000 micro-CNY`。
-- 供应商密钥沿用现有部署密钥加密能力，数据库和日志均不保存或输出明文。
+- 数据库表保持零外键约束，使用 ID、唯一键和业务事务维护关联。
+- 金额继续使用整数微元：`1 CNY = 1,000,000 micro-CNY`。
+- 倍率、价格和成本不使用 `float` 或 `double`。
+- 上游 API Key 使用现有部署密钥加密能力保存，数据库和日志不出现明文。
 
-## 3. 鉴权与对外契约
+## 3. 系统职责边界
 
-### 3.1 中转接口
+### 3.1 我们的 backend
 
-普通用户使用现有 Access Token：
+backend 负责：
+
+- 用户身份认证和权限判断。
+- API Key 创建、查询、撤销和校验。
+- 公开模型管理和模型映射。
+- 上游通道管理。
+- 请求入口、请求大小和输出上限校验。
+- 价格档位和价格快照。
+- 钱包、余额、预授权、冻结和结算。
+- 上游成本、用户消费和差额计算。
+- 消费流水、充值、管理员调整和补偿。
+- 统一错误、日志脱敏和用户数据隔离。
+
+### 3.2 Sub2API
+
+Sub2API 是已部署的上游统一模型中转项目，负责：
+
+- 将请求转发到 Claude、GPT、Gemini、DeepSeek 等模型。
+- 上游模型协议适配。
+- Sub2API 自身的账号、分组、额度池、轮询和故障切换。
+- 返回统一的模型响应和 Token usage。
+
+backend 不重新实现各模型厂商官方协议，也不把 Sub2API 的账号池和轮询逻辑复制到本项目。
+
+## 4. 核心架构
+
+```text
+AiGatewayController
+        -> AiGatewayService
+        -> UpstreamRouter
+        -> UpstreamClient
+        -> Sub2ApiClient
+```
+
+### `AiGatewayController`
+
+负责 `/v1/*` HTTP 参数、认证上下文和流式响应，不直接访问数据库，不直接修改钱包。
+
+### `AiGatewayService`
+
+负责一次完整的网关请求：
+
+1. 解析 JWT 或用户 API Key 得到普通用户 ID。
+2. 校验用户、公开模型和上游通道状态。
+3. 解析当前价格档位并锁定价格快照。
+4. 计算预授权金额，原子冻结用户余额。
+5. 调用 `UpstreamRouter`。
+6. 转发非流式 JSON 或 SSE 流式响应。
+7. 读取 usage，计算上游成本、用户扣费和差额。
+8. 写入请求记录、用量记录和账务流水。
+9. 释放冻结金额中的差额，或在失败时全部释放。
+
+该服务只依赖通用模型、价格、通道和账务模型，不依赖 Sub2API 专属实现。
+
+### `UpstreamRouter`
+
+根据上游通道类型和 endpoint 类型选择客户端。本期只支持：
+
+```text
+SUB2API -> Sub2ApiClient
+```
+
+后续可增加：
+
+```text
+OPENAI_DIRECT -> OpenAiDirectClient
+ANTHROPIC_DIRECT -> AnthropicDirectClient
+DEEPSEEK_DIRECT -> DeepSeekDirectClient
+```
+
+### `UpstreamClient`
+
+提供通用的上游调用边界，表达：
+
+- endpoint 类型
+- 上游模型名
+- 请求载荷
+- stream 标志
+- 上游响应或流
+- input/output/total tokens
+- 上游 request ID
+- 上游错误
+
+本期只实现 `Sub2ApiClient`。模型、钱包、计费和账务不引用该类。
+
+## 5. API Key 基础能力
+
+本期纳入用户 API Key 基础能力，支持：
+
+- 创建
+- 查询列表
+- 撤销
+- 网关鉴权
+
+本期不实现：
+
+- Key 配额
+- IP 白名单
+- 细粒度模型权限
+- 轮换策略
+- 自动过期
+- Key 分组和层级管理
+
+### 5.1 创建 API Key
 
 ```http
-POST /v1/chat/completions
+POST /api/user/api-keys
 Authorization: Bearer <user-access-token>
 Content-Type: application/json
 ```
 
-客户端可以把 Access Token 作为 OpenAI SDK 的 `api_key` 使用。由于现有 Access Token 默认有效期为 30 分钟，长时间无人值守调用需要由后续 API Key 功能解决。
+请求：
 
-请求体沿用 OpenAI Chat Completions 结构，首期接受 `model`、`messages`、`stream`、`max_tokens`、`temperature`、`top_p`、`response_format` 等 DeepSeek 支持的字段。网关只校验当前计费和安全所需的字段，并把允许字段转发给 DeepSeek；禁止携带自定义上游 URL 或上游 Authorization。可选的 `Idempotency-Key` 用于客户端重试幂等；未提供时每次请求都视为新的消费请求。
+```json
+{
+  "name": "我的 Agent"
+}
+```
+
+响应只在创建成功时返回一次完整明文 Key：
+
+```json
+{
+  "id": 1,
+  "name": "我的 Agent",
+  "apiKey": "sk-atlas-...",
+  "keyPrefix": "sk-atlas-ab12",
+  "createdAt": "2026-10-07T15:00:00"
+}
+```
+
+服务端不保存明文 Key，用户关闭页面后不能再次查询完整 Key。
+
+### 5.2 查询 API Key
 
 ```http
-GET /v1/models
+GET /api/user/api-keys
 Authorization: Bearer <user-access-token>
 ```
 
-`/v1/models` 只返回管理员启用的 DeepSeek 模型及其基础模型信息，不返回供应商密钥、内部价格或其他用户数据。
+只返回：
 
-### 3.2 用户账务接口
+- ID
+- 名称
+- Key 前缀
+- 状态
+- 创建时间
+- 最近使用时间
+- 撤销时间
 
-普通用户使用 `SCOPE_user`：
+不返回完整 Key、Hash 或内部密钥材料。
 
-| 方法 | 路径 | 作用 |
-| --- | --- | --- |
-| GET | `/api/user/billing/balance` | 查询当前余额、冻结金额和可用余额 |
-| GET | `/api/user/billing/transactions` | 分页查询自己的充值、消费、退款和调整流水 |
-| GET | `/api/user/billing/usage` | 分页查询自己的模型、token 和费用明细 |
-| GET | `/api/user/billing/usage/summary` | 查询时间范围内的 token 与金额汇总 |
+### 5.3 撤销 API Key
 
-所有用户账务查询从 JWT 的 `sub` 读取用户 ID，不接受客户端传入用户 ID。
-
-### 3.3 管理接口
-
-系统用户使用 `SCOPE_admin`：
-
-| 方法 | 路径 | 作用 |
-| --- | --- | --- |
-| GET/PUT | `/api/sys-user/gateway/deepseek` | 查询或更新 DeepSeek 开关、Base URL 和密钥配置 |
-| GET/PUT | `/api/sys-user/gateway/models/{model}` | 查询或更新模型启用状态和单请求上限 |
-| GET/PUT | `/api/sys-user/gateway/models/{model}/official-price` | 单独查询或维护 DeepSeek 官方输入/输出价格 |
-| GET/PUT | `/api/sys-user/gateway/models/{model}/billing-multiplier` | 单独查询或调整用户计费倍率 |
-| GET | `/api/sys-user/billing/users/{userId}/balance` | 查询指定用户余额 |
-| POST | `/api/sys-user/billing/users/{userId}/adjustments` | 充值或调整指定用户余额 |
-| GET | `/api/sys-user/billing/transactions` | 按用户、类型和时间分页查询消费流水 |
-| GET | `/api/sys-user/billing/usage` | 按用户、模型和时间分页查询用量明细 |
-
-管理员查询只返回密钥是否已配置和脱敏标识，不返回 API Key 明文。官方价格输入使用 CNY/百万 token，服务端转换为微元保存；倍率使用整数百万分比保存，例如 `1.25` 保存为 `1250000`，`1.0` 保存为 `1000000`。管理员日常调整的是倍率，官方价格通过独立接口维护；历史账单不依赖当前配置，而依赖请求时保存的价格快照。
-
-## 4. 业务组件
-
-### 4.1 Gateway 配置
-
-`DeepSeekGatewayConfigService` 负责读取并更新单一 DeepSeek 配置，验证 Base URL 为 HTTPS origin（本地开发可由配置允许 HTTP）、密钥非空、模型上限和官方价格非负。`DeepSeekClient` 负责向固定 Base URL 发起请求，设置服务端保存的 Authorization，并暴露非流式响应和流式输入流，不参与账务逻辑。
-
-首期不抽象供应商池接口。DeepSeek 配置和客户端属于同一个真实调用方，后续增加供应商时再按实际边界拆分。
-
-### 4.2 Billing Service
-
-`BillingService` 负责钱包读取、预授权、结算、释放和流水查询。预授权与结算均在数据库事务中完成，不能通过 Controller 直接修改余额。
-
-钱包包含可用余额和冻结余额。预授权时原子地执行：
-
-```sql
-UPDATE ai_wallet
-SET available_micro_cny = available_micro_cny - #{reserveAmount},
-    reserved_micro_cny = reserved_micro_cny + #{reserveAmount}
-WHERE user_id = #{userId}
-  AND available_micro_cny >= #{reserveAmount}
+```http
+DELETE /api/user/api-keys/{id}
+Authorization: Bearer <user-access-token>
 ```
 
-受影响行数为 0 时返回稳定的“余额不足”业务错误，不调用 DeepSeek。结算时从冻结余额扣除实际费用，并将差额退回可用余额；上游失败或本地无法建立上游请求时释放全部冻结金额。
+撤销操作幂等。撤销后的 Key 立即不能调用 `/v1/*`。
 
-### 4.3 Request Orchestrator
+### 5.4 API Key 鉴权
 
-`DeepSeekGatewayService` 按以下顺序组织一次请求：
+网关支持以下两种身份：
 
-1. 从 JWT 取得普通用户 ID，读取用户状态并校验账户可用。
-2. 校验网关启用、模型启用、请求大小、`max_tokens` 和 `stream` 参数。
-3. 根据原始请求字节数和输出上限计算保守的预授权 token 数和金额。
-4. 以唯一 `request_id` 创建请求记录并冻结余额。
-5. 调用 DeepSeek；非流式直接解析 JSON，流式逐段转发 SSE。
-6. 从响应 `usage` 读取输入/输出 token，按请求开始时锁定的官方价格和计费倍率计算官方成本与用户实际费用。
-7. 在同一账务事务中写入用量记录、消费流水和请求最终状态，释放预授权差额。
+1. 普通用户 JWT Access Token。
+2. 用户 API Key。
 
-预授权输入 token 使用请求 UTF-8 字节数作为保守上界，输出 token 使用请求中的 `max_tokens`，未提供时使用该模型的服务端上限。预授权金额使用用户计费价格计算；官方成本只在收到 usage 后计算。网关限制请求体大小和输出上限，因此上游实际用户费用不应超过预授权。实际账单始终以 DeepSeek 的 `usage` 为准；若上游流式响应没有返回 usage，则请求记录标记为 `USAGE_MISSING`，按预授权金额结算并记录异常原因，避免少扣费。
+OpenAI 兼容客户端可以直接使用：
 
-价格计算全部使用整数微元，不使用 `float` 或 `double`。设官方输入/输出单价为 `officialPriceMicro`，倍率为 `multiplierPpm`，固定倍率精度为 `1,000,000`：
-
-```text
-userPriceMicro = ceil(officialPriceMicro * multiplierPpm / 1,000,000)
-officialCostMicro = ceil(tokens * officialPriceMicro / 1,000,000)
-userChargeMicro = ceil(tokens * userPriceMicro / 1,000,000)
-marginMicro = userChargeMicro - officialCostMicro
+```http
+Authorization: Bearer <user-api-key>
 ```
 
-输入和输出分别计算后再相加；所有 `ceil` 使用整数除法实现，避免中间结果丢失精度。Java 实现使用 `BigInteger` 或经过溢出检查的整数运算，不使用 `float`、`double` 或未经检查的乘法截断。倍率必须为正整数，默认 `1,000,000` 表示原价，低于或高于该值分别表示折扣或加价。每次请求保存官方输入/输出价格快照、倍率快照、用户输入/输出计费价格快照、官方输入/输出成本、用户输入/输出扣费和差额。后续修改官方价格或倍率不得影响历史账单。
+也可以支持：
 
-## 5. 数据模型
+```http
+X-API-Key: <user-api-key>
+```
 
-所有新表写入 `backend/web_project.sql`，不创建迁移脚本。钱包和成本金额字段使用 `BIGINT UNSIGNED` 保存微元；流水的金额变化字段使用有符号 `BIGINT`，以同时表达充值和扣费；token 字段使用 `BIGINT UNSIGNED`。
+API Key 格式使用可识别前缀，例如 `sk-atlas-`。认证流程根据前缀识别 Key，查询 Hash 后的密钥记录，确认状态为 `ACTIVE`，再加载对应普通用户身份和 `SCOPE_user` 权限。
 
-### 5.1 `ai_wallet`
+API Key 只用于 `/v1/*` 网关接口，不能替代用户 Access Token 调用用户资料、充值或 API Key 管理接口。API Key 认证成功后只更新最近使用时间，不改变余额和权限。
 
-每个普通用户一行，以 `user_id` 为主键并关联 `user_account.id`。
+创建、查询和撤销 API Key 必须使用现有普通用户 Access Token。
+
+## 6. 多模型和上游通道
+
+### 6.1 公开模型
+
+模型同时保存用户侧名称和上游名称：
+
+| 用户模型名 | 模型类型 | 上游模型名 |
+| --- | --- | --- |
+| `claude-pro` | `CLAUDE` | `claude-3-7-sonnet` |
+| `gpt-plus` | `GPT` | `gpt-4.1` |
+| `gemini-pro` | `GEMINI` | `gemini-2.5-pro` |
+| `deepseek-chat` | `DEEPSEEK` | `deepseek-chat` |
+
+用户始终提交 `publicModel`。backend 转换为配置中的 `upstreamModel`。
+
+修改上游模型名不会改变公开接口，也不会影响已经保存的历史账单，因为请求和用量记录保存模型快照。
+
+### 6.2 上游通道
+
+每个 Sub2API API Key 对应一个通道：
 
 | 字段 | 说明 |
 | --- | --- |
-| `user_id` | 普通用户 ID |
+| `name` | 通道名称，例如 `Claude-Kiro` |
+| `type` | 本期固定为 `SUB2API` |
+| `baseUrl` | Sub2API 地址 |
+| `encryptedApiKey` | 加密保存的 API Key |
+| `enabled` | 是否启用 |
+
+一个公开模型首期固定绑定一个通道。禁用通道后，绑定模型不能调用上游。
+
+不实现多 Key 自动轮询、账号池、自动故障切换和动态负载均衡。
+
+## 7. 对外接口和协议边界
+
+### 7.1 本期实现
+
+```text
+POST /v1/chat/completions
+GET  /v1/models
+```
+
+两类调用均只能访问管理员启用的公开模型。
+
+### 7.2 后续预留
+
+内部 endpoint 类型统一定义为：
+
+```text
+CHAT_COMPLETIONS
+RESPONSES
+MESSAGES
+```
+
+本期只实现 `CHAT_COMPLETIONS`，但 `AiGatewayService`、`UpstreamRouter` 和 `UpstreamClient` 不应把所有业务逻辑写死为 Chat Completions。后续新增 `/v1/responses` 或 `/v1/messages` 时，只增加对应的请求/响应适配和客户端能力。
+
+## 8. 价格档位和计费模型
+
+每个模型支持以下价格档位：
+
+```text
+STANDARD
+PEAK
+OFF_PEAK
+```
+
+每个档位分别配置：
+
+- `upstreamInputCost`
+- `upstreamOutputCost`
+- `baseInputSalePrice`
+- `baseOutputSalePrice`
+- `billingMultiplierPpm`
+
+用户最终售价：
+
+```text
+用户最终售价 = 基础售价 × 计费倍率
+```
+
+### 8.1 金额单位
+
+所有金额保存为整数微元：
+
+```text
+1 CNY = 1,000,000 micro-CNY
+```
+
+价格单位为每百万 Token 对应的微元。
+
+### 8.2 倍率单位
+
+倍率使用百万分比整数：
+
+```text
+1.0  = 1000000
+1.25 = 1250000
+1.5  = 1500000
+```
+
+不使用 `float` 或 `double`。Java 实现使用 `BigInteger` 或经过溢出检查的整数运算。
+
+设 `SCALE = 1,000,000`：
+
+```text
+userInputPrice = ceil(baseInputSalePrice × billingMultiplierPpm / SCALE)
+userOutputPrice = ceil(baseOutputSalePrice × billingMultiplierPpm / SCALE)
+```
+
+### 8.3 上游成本、用户扣费和差额
+
+上游成本不再使用 `officialCost`，统一使用 `upstreamCost`：
+
+```text
+upstreamCost
+  = ceil(inputTokens × upstreamInputCost / 1,000,000)
+  + ceil(outputTokens × upstreamOutputCost / 1,000,000)
+```
+
+用户扣费：
+
+```text
+userCharge
+  = ceil(inputTokens × userInputPrice / 1,000,000)
+  + ceil(outputTokens × userOutputPrice / 1,000,000)
+```
+
+差额：
+
+```text
+margin = userCharge - upstreamCost
+```
+
+Sub2API 首期一般只返回 Token usage，不一定返回成本金额。因此 `upstreamCost` 使用 `ai_model_price` 中保存的上游输入/输出成本计算。
+
+未来官方直连时，官方实际成本仍然写入 `upstreamCost`，不修改钱包、账务或统计结构。
+
+### 8.4 价格档位选择
+
+当前价格档位由 backend 选择，用户不能自行传入任意价格档位。首期使用系统配置：
+
+```text
+ai.gateway.current-price-band
+```
+
+默认值为 `STANDARD`。模型没有当前档位价格时，使用该模型的 `STANDARD` 价格，并将最终生效的档位写入请求快照。
+
+本期不实现自动按时间切换峰谷价格；后续可增加调度规则，不改变历史账单结构。
+
+## 9. 请求预授权和结算
+
+一次请求的流程：
+
+1. 使用 JWT 或 API Key 获取普通用户 ID。
+2. 校验用户状态。
+3. 校验 `publicModel` 存在且启用。
+4. 校验绑定上游通道存在且启用。
+5. 选择当前价格档位。
+6. 保存官方模型、上游模型、通道和价格快照。
+7. 根据请求字节数和 `max_tokens` 计算保守的预授权金额。
+8. 原子冻结用户余额。
+9. 调用 Sub2API。
+10. 转发 JSON 或 SSE 响应。
+11. 读取输入/输出 Token usage。
+12. 计算 `upstreamCost`、`userCharge` 和 `margin`。
+13. 写入用量记录和消费流水。
+14. 从冻结金额扣除实际用户费用，并退回差额。
+
+余额不足时不调用上游、不创建消费流水。
+
+上游 4xx、5xx、timeout、连接失败或请求未建立时释放全部冻结金额，状态为 `UPSTREAM_FAILED`。
+
+流式响应没有 usage 时，状态为 `USAGE_MISSING`，按预授权金额结算并记录异常原因，避免少扣费。
+
+上游调用不放在 MySQL 事务内。预授权和请求记录在一个事务中完成；上游完成后的结算是独立事务，以 `request_id` 幂等。
+
+如果进程在上游成功后、结算前崩溃，轻量定时补偿任务扫描长时间处于 `RESERVED` 的请求，按已有 usage 结算或按规则释放。该任务不使用消息队列。
+
+## 10. 数据模型
+
+所有新表写入 `backend/web_project.sql`，不新增迁移脚本，不创建 Foreign Key。
+
+### 10.1 `ai_wallet`
+
+| 字段 | 说明 |
+| --- | --- |
+| `user_id` | 普通用户 ID，主键 |
 | `available_micro_cny` | 可用余额 |
-| `reserved_micro_cny` | 请求预授权冻结金额 |
-| `created_at`、`updated_at` | 审计时间 |
+| `reserved_micro_cny` | 冻结金额 |
+| `created_at` | 创建时间 |
+| `updated_at` | 更新时间 |
 
-注册成功时创建钱包；历史或测试数据在首次访问账务时通过明确的幂等初始化补齐。钱包余额不能直接通过用户资料接口修改。
+### 10.2 `ai_api_key`
 
-### 5.2 `ai_gateway_config`
+| 字段 | 说明 |
+| --- | --- |
+| `id` | Key ID |
+| `user_id` | 普通用户 ID |
+| `name` | 用户给 Key 设置的名称 |
+| `key_prefix` | 用于展示的前缀 |
+| `secret_hash` | 完整 Key 的单向 Hash |
+| `status` | `ACTIVE` 或 `REVOKED` |
+| `last_used_at` | 最近使用时间 |
+| `created_at` | 创建时间 |
+| `revoked_at` | 撤销时间 |
+| `updated_at` | 更新时间 |
 
-单行 DeepSeek 配置：启用状态、Base URL、加密后的 API Key、更新时间。`provider` 固定为 `deepseek` 并建立唯一约束；本期不保存多个供应商账号。
+不保存完整明文 Key。`secret_hash` 建立唯一约束，`user_id/status` 建立查询索引。
 
-### 5.3 `ai_gateway_model`
+### 10.3 `ai_upstream_channel`
 
-按模型保存启用状态、官方输入价格微元/百万 token、官方输出价格微元/百万 token、计费倍率百万分比、最大输入字节数和最大输出 token。模型名唯一；删除模型改为停用，避免历史用量失去名称。官方价格字段与倍率字段分开维护，管理员调整倍率不改写官方价格。
+| 字段 | 说明 |
+| --- | --- |
+| `id` | 通道 ID |
+| `name` | 通道名称，唯一 |
+| `type` | `SUB2API` |
+| `base_url` | Sub2API Base URL |
+| `encrypted_api_key` | 加密后的 Sub2API API Key |
+| `enabled` | 是否启用 |
+| `created_at` | 创建时间 |
+| `updated_at` | 更新时间 |
 
-### 5.4 `ai_gateway_request`
+### 10.4 `ai_gateway_model`
 
-记录一次中转请求的幂等和预授权状态：
+| 字段 | 说明 |
+| --- | --- |
+| `id` | 模型 ID |
+| `public_model` | 用户侧模型名，唯一 |
+| `model_family` | `CLAUDE`、`GPT`、`GEMINI`、`DEEPSEEK` 等 |
+| `upstream_model` | Sub2API 实际模型名 |
+| `upstream_channel_id` | 固定绑定的通道 ID |
+| `enabled` | 是否启用 |
+| `max_input_bytes` | 最大请求字节数 |
+| `max_output_tokens` | 最大输出 Token |
+| `created_at` | 创建时间 |
+| `updated_at` | 更新时间 |
 
-- `request_id` 唯一；同一用户的 `Idempotency-Key`（若提供）建立唯一约束并映射到该请求；
-- `user_id`、模型、官方价格快照、倍率快照和用户计费价格快照；
-- 预授权输入/输出 token 上限与金额；
-- 实际 token、官方成本、用户扣费、差额和上游 request ID；
-- `RESERVED`、`SETTLED`、`RELEASED`、`UPSTREAM_FAILED`、`USAGE_MISSING` 状态；
-- 创建和完成时间。
+### 10.5 `ai_model_price`
 
-同一 `Idempotency-Key` 的重试返回原请求状态，不重复调用或结算；未提供幂等键的重复提交按独立请求处理。
+| 字段 | 说明 |
+| --- | --- |
+| `id` | 价格 ID |
+| `model_id` | 模型 ID |
+| `price_band` | `STANDARD`、`PEAK`、`OFF_PEAK` |
+| `upstream_input_cost` | 上游输入成本，微元/百万 Token |
+| `upstream_output_cost` | 上游输出成本，微元/百万 Token |
+| `base_input_sale_price` | 基础输入售价，微元/百万 Token |
+| `base_output_sale_price` | 基础输出售价，微元/百万 Token |
+| `billing_multiplier_ppm` | 百万分比整数倍率 |
+| `created_at` | 创建时间 |
+| `updated_at` | 更新时间 |
 
-### 5.5 `ai_usage_record`
+唯一约束为 `(model_id, price_band)`。
 
-一请求一条用量记录，保存输入、输出、总 token，官方输入/输出价格快照，倍率快照，用户输入/输出计费价格快照，官方输入/输出/总成本，用户输入/输出/总扣费和官方成本与用户扣费差额，模型、用户、状态和时间。用量统计只读取该表，不从流水描述文本反推 token；官方成本、用户消费和差额都使用请求快照计算，不回读当前模型配置。用户和管理员的明细及汇总响应统一提供 `officialCost`、`userCharge`、`margin` 三组金额，以及对应 token 数；管理员额外可按用户和模型筛选。
+### 10.6 `ai_gateway_request`
 
-### 5.6 `ai_billing_transaction`
+至少保存：
 
-不可变账务流水，保存用户、请求 ID（消费/退款时）、类型、正负金额、变更后可用余额、操作人、备注和时间。类型至少包括 `TOP_UP`、`CONSUMPTION`、`REFUND`、`ADJUSTMENT`。消费和退款使用请求 ID 唯一约束，充值/调整使用管理操作 ID 防止重复提交。消费流水查询按请求 ID 关联对应的 `ai_usage_record` 快照，同时返回 `officialCost`、`userCharge`、`margin`；充值、调整等非模型消费流水的三项金额为空，不从当前模型价格重新计算。
+- `request_id`
+- `idempotency_key`
+- `user_id`
+- `public_model`
+- `model_family`
+- `upstream_model`
+- `upstream_channel_id`
+- `endpoint_type`
+- `price_band`
+- 上游输入/输出成本快照
+- 基础输入/输出售价快照
+- 倍率快照
+- 最终用户输入/输出售价快照
+- 预授权金额
+- input/output/total token
+- `upstream_cost`
+- `user_charge`
+- `margin`
+- `upstream_request_id`
+- 请求状态
+- 创建时间和完成时间
 
-## 6. 响应、错误和安全
+状态至少包括：
 
-- 成功 JSON 原样保留 DeepSeek 的 OpenAI 兼容字段，并由网关补充必要的 request ID。
-- `stream=true` 使用 `text/event-stream`，逐段转发 `data:` 内容和 `[DONE]`；网关不缓存完整响应。
-- DeepSeek 的 4xx/5xx、超时和连接失败转换为稳定网关错误；客户端收到错误时不暴露上游密钥、内部 URL、SQL 或堆栈。
-- 余额不足、网关未启用、模型未启用、请求超过上限、上游不可用、usage 缺失分别使用独立业务错误码，前端不依赖中文文案判断状态。
-- 日志只记录用户 ID、模型、请求 ID、token 数、金额和状态；不得记录 Authorization、API Key、完整 messages、prompt 或上游响应正文。
-- 用户只能读取自己的钱包、流水和用量；管理员可以按用户查询，但不能读取供应商密钥明文。
-- 官方价格、倍率、余额和流水写入必须检查影响行数；任何账务事务失败都不能返回成功。
-- 用户和管理员的用量统计同时返回官方成本、用户消费和差额；差额定义为用户消费减官方成本，可因倍率低于 1 而为负数。
+```text
+RESERVED
+SETTLED
+RELEASED
+UPSTREAM_FAILED
+USAGE_MISSING
+```
 
-## 7. 事务与故障处理
+同一个用户的 `Idempotency-Key` 重试返回原请求状态，不重复调用或扣费；未提供幂等键时，重复提交视为新请求。
 
-预授权、请求记录和钱包变更在一个 MySQL 事务中完成。上游调用不放在数据库事务内，避免网络等待长期占用数据库连接；上游成功后的结算是独立事务，并以 `request_id` 幂等。
+### 10.7 `ai_usage_record`
 
-如果客户端在流式传输中断开，服务端继续关闭上游连接并执行释放/结算逻辑。若进程在上游成功后、结算前崩溃，启动后的轻量定时补偿任务扫描长时间处于 `RESERVED` 的请求：有完整 usage 的按 usage 结算，没有 usage 的按预授权释放并标记为未完成，所有补偿动作写入流水。该任务直接复用 MySQL 幂等状态，不引入消息队列或独立异步账单服务；补偿任务只处理有明确超时条件的请求，避免重复结算。
+用于独立统计，保存：
 
-DeepSeek 返回错误或连接从未建立时，状态为 `UPSTREAM_FAILED`，释放全部冻结金额且不写消费流水。数据库结算失败时不伪造成功响应，保留请求状态供补偿和人工查询。
+- 用户 ID
+- `public_model`
+- `model_family`
+- `upstream_model`
+- `upstream_channel_id`
+- `endpoint_type`
+- `price_band`
+- input/output/total token
+- 上游输入/输出成本价格快照
+- 基础输入/输出售价快照
+- 倍率快照
+- 最终用户输入/输出售价快照
+- `upstreamCost`
+- `userCharge`
+- `margin`
+- 状态和时间
 
-## 8. 测试与验收
+历史统计只读取快照，不回读当前模型价格。
 
-### 单元测试
+### 10.8 `ai_billing_transaction`
 
-- 官方价格、倍率和用户价格换算到微元时的整数舍入和边界。
-- 官方成本、用户消费和差额的独立计算及历史价格快照。
-- 预授权金额计算、余额不足和请求上限校验。
-- usage 结算、差额退款和上游失败释放。
-- 重复 request ID 不重复扣费。
-- 用户与管理员的查询范围和错误码。
+不可变账务流水，保存：
 
-### MySQL 集成测试
+- 用户 ID
+- 请求 ID
+- 类型
+- 正负金额变化
+- 变更后可用余额
+- 操作人
+- 幂等操作 ID
+- 备注
+- 创建时间
 
-- 钱包条件更新在余额充足/不足时的受影响行数。
-- 同一用户并发预授权时余额不变为负数，成功数量不超过余额可承担金额。
-- 消费、退款、充值流水与最终余额一致，且消费流水与用量记录中的用户扣费一致。
-- 唯一约束防止同一请求重复消费。
+类型至少包括：
 
-### HTTP 与启动冒烟
+```text
+TOP_UP
+CONSUMPTION
+REFUND
+ADJUSTMENT
+```
 
-- 用真实应用启动验证 `/v1/models`、非流式中转、流式转发和错误响应。
-- 验证普通用户 Token 可访问，系统用户 Token 和匿名请求被拒绝。
-- 验证余额不足时 DeepSeek 不收到请求。
-- 验证上游超时和 5xx 后余额恢复。
-- 验证修改官方价格或倍率后，历史请求的官方成本、用户消费和差额不变。
-- 验证密钥、Authorization、prompt 和响应正文不进入应用日志。
+消费流水通过 `request_id` 关联 `ai_usage_record`，同时返回 `upstreamCost`、`userCharge` 和 `margin`。充值和管理员调整流水的三项金额为空。
 
-完成实现后按 `backend/AGENTS.md` 和 `docs/quality-gates.md` 执行规范检查、代码 Review、`mvnw.cmd verify`、数据库集成测试和独立环境 HTTP 冒烟，并同步 `docs/api.md`。
+## 11. 管理接口范围
 
-## 9. 后续演进
+系统用户使用 `SCOPE_admin` 管理：
 
-当实际调用量或产品需求证明需要时，再分别引入：
+```text
+GET/POST/PUT/DELETE /api/sys-user/gateway/channels
+GET/POST/PUT/DELETE /api/sys-user/gateway/models
+GET/PUT /api/sys-user/gateway/models/{id}/prices/{priceBand}
+GET/PUT /api/sys-user/gateway/price-band
+GET /api/sys-user/billing/transactions
+GET /api/sys-user/billing/usage
+GET /api/sys-user/billing/users/{userId}/balance
+POST /api/sys-user/billing/users/{userId}/adjustments
+```
 
-1. 长期用户 API Key（哈希存储、创建/撤销、最后使用时间和密钥轮换）。
-2. 多供应商和 DeepSeek 多账号额度池，按可用余额和限流状态选择账号。
-3. 异步账务补偿队列和独立网关服务。
-4. 控制台中的余额、价格、用量和流水页面。
+管理员只能看到 API Key 是否已配置和脱敏标识，不能查询 Sub2API API Key 明文。
 
-这些能力不改变本期 `ai_wallet`、请求幂等和 usage 结算的核心约束。
+## 12. 用户账务接口
+
+普通用户使用 `SCOPE_user`，用户 ID 只从 JWT 读取：
+
+```text
+GET /api/user/billing/balance
+GET /api/user/billing/transactions
+GET /api/user/billing/usage
+GET /api/user/billing/usage/summary
+```
+
+明细和汇总同时支持：
+
+- Token 数量
+- `upstreamCost`
+- `userCharge`
+- `margin`
+- 模型
+- 通道
+- 价格档位
+
+用户只能读取自己的钱包、流水和用量。
+
+## 13. 安全、错误和日志
+
+- 用户不能获得 Sub2API API Key。
+- 用户不能指定任意 upstream URL。
+- 用户只能调用管理员启用的模型。
+- 禁用模型和禁用通道都不能访问上游。
+- API Key 只保存单向 Hash，完整明文只在创建响应中出现一次。
+- 撤销后的 API Key 立即失效。
+- API Key 不能调用用户资料、账务管理或 Key 管理接口。
+- 日志不得记录 API Key、Authorization、完整 prompt、完整 messages 或完整响应。
+- 余额不足、模型未启用、通道未启用、请求超限、上游不可用和 usage 缺失使用稳定业务错误码。
+- 上游错误不暴露 Sub2API 的内部密钥、详细地址或堆栈。
+- 价格、倍率、余额、Key 状态和账务写入都必须检查影响行数。
+
+## 14. 测试与验收
+
+### API Key
+
+- 创建成功只返回一次完整明文 Key。
+- 查询列表不返回明文、Hash 或完整 Key。
+- 撤销后 Key 立即鉴权失败。
+- JWT 和 API Key 都能访问 `/v1/*`。
+- API Key 不能访问用户资料、充值和 Key 管理接口。
+- 不同用户不能互相查询或撤销 API Key。
+- API Key、Authorization 不进入日志。
+
+### 多模型路由
+
+- `publicModel` 正确映射到 `upstreamModel`。
+- 请求路由到正确的 Sub2API 通道。
+- 不同模型可以绑定不同通道。
+- 禁用模型不能调用上游。
+- 禁用通道不能调用上游。
+- 修改上游模型名不影响用户接口和历史账单。
+
+### 价格和结算
+
+- `STANDARD`、`PEAK`、`OFF_PEAK` 选择正确。
+- 没有峰谷价格的模型使用 `STANDARD`。
+- 倍率百万分比整数计算正确。
+- 输入和输出分别计价，舍入结果正确。
+- `upstreamCost`、`userCharge`、`margin` 计算正确。
+- 修改价格、倍率、模型映射或通道后，历史快照不变。
+
+### 钱包和账务
+
+- 余额不足时不请求上游。
+- 预授权正确冻结余额。
+- 实际 usage 结算正确多退少补。
+- 上游失败释放全部冻结金额。
+- 重复 `requestId` 或 `Idempotency-Key` 不重复扣费。
+- 并发预授权时余额不能为负。
+- 消费流水、用量记录和最终钱包余额一致。
+- 充值和管理员调整具有幂等性。
+
+### 上游和协议
+
+- Sub2API 4xx、5xx、timeout 和连接失败。
+- 非流式 usage 结算。
+- 流式 usage 结算。
+- 流式响应缺失 usage 的约定处理。
+- 客户端断开连接后的冻结金额处理。
+- `/v1/chat/completions` 不接受任意上游 URL。
+- `/v1/models` 只返回启用的公开模型。
+
+### 并发、集成和日志
+
+- MySQL 条件扣款并发测试。
+- MySQL 唯一键防止重复结算。
+- 真实应用启动后的 HTTP 鉴权和转发冒烟。
+- API Key、Authorization、prompt/messages 和完整响应日志扫描。
+
+## 15. 后续接入官方直连
+
+需要修改：
+
+1. 新增 `OpenAiDirectClient`、`AnthropicDirectClient` 或 `DeepSeekDirectClient`。
+2. 扩展上游通道类型。
+3. 在 `UpstreamRouter` 中增加类型到客户端的映射。
+4. 新增或调整模型的上游通道绑定。
+5. 为直连模型维护对应的上游成本价格。
+6. 为不同协议增加请求和响应转换。
+
+不需要修改：
+
+- 用户 JWT 和 API Key 管理
+- `/v1` 用户入口
+- `AiGatewayService` 的钱包和账务流程
+- 预授权、冻结和余额不足控制
+- 消费流水、充值和管理员调整
+- `ai_gateway_request`
+- `ai_usage_record`
+- `ai_billing_transaction`
+- `upstreamCost`
+- `userCharge`
+- `margin`
+- 历史价格快照
+- 幂等和结算补偿
+
+官方直连只改变上游客户端和通道类型。账务仍然统一记录 `upstreamCost`，不需要重新设计钱包或流水。
+
+## 16. 相比 DeepSeek 专属方案的调整
+
+### 删除
+
+- 单一 DeepSeek 全局 API Key。
+- `ai_gateway_config` 单通道配置模式。
+- DeepSeek 专属模型路由。
+- “官方价格 × 倍率”作为唯一计费规则。
+- `officialCost` 命名。
+- 只支持 DeepSeek 的 Gateway Service 和 Client。
+- 长期 API Key 被排除在本期范围之外的限制。
+
+### 改名
+
+- `DeepSeekGatewayService` -> `AiGatewayService`
+- `DeepSeekClient` -> `Sub2ApiClient`
+- `officialCost` -> `upstreamCost`
+- 官方价格字段 -> 上游成本字段
+- DeepSeek 配置 -> 上游通道配置
+- DeepSeek 模型 -> 通用模型
+
+### 新增
+
+- `UpstreamRouter`
+- `UpstreamClient`
+- `ai_api_key`
+- `ai_upstream_channel`
+- `ai_model_price`
+- `publicModel`
+- `modelFamily`
+- `upstreamModel`
+- `endpointType`
+- `priceBand`
+- 基础销售价
+- 整数计费倍率
+- 上游成本快照
+- 用户售价快照
+- API Key 创建、查询、撤销和鉴权
+- `/v1/responses` 和 `/v1/messages` 内部协议预留
+
+最终边界为：
+
+```text
+模型、钱包、计费、账务和 API Key = backend 通用业务能力
+Sub2API = 本期唯一上游实现
+UpstreamClient = 后续官方直连扩展边界
+```
+
+实现时仍需遵循 `backend/AGENTS.md`、`docs/engineering.md` 和 `docs/quality-gates.md`，最终同步 `backend/web_project.sql` 与 `backend/docs/api.md`。
