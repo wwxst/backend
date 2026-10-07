@@ -5,11 +5,21 @@ import com.web.project.admin.dto.ResetSysUserPasswordDTO;
 import com.web.project.admin.dto.UpdateSysUserDTO;
 import com.web.project.admin.entity.SysUser;
 import com.web.project.admin.mapper.SysUserMapper;
-import com.web.project.admin.service.SysUserAvatarStorage;
+import com.web.project.storage.service.StorageService;
+import com.web.project.storage.entity.StorageFile;
+import com.web.project.storage.mapper.StorageFileMapper;
 import com.web.project.common.error.ErrorCode;
 import com.web.project.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.mock.web.MockMultipartFile;
+import org.junit.jupiter.api.BeforeEach;
+
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.doThrow;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -24,8 +34,24 @@ class SysUserServiceImplTest {
 
     private final SysUserMapper mapper = mock(SysUserMapper.class);
     private final PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
-    private final SysUserAvatarStorage avatarStorage = mock(SysUserAvatarStorage.class);
-    private final SysUserServiceImpl service = new SysUserServiceImpl(mapper, passwordEncoder, avatarStorage);
+    private final StorageService storage = mock(StorageService.class);
+    private final StorageFileMapper files = mock(StorageFileMapper.class);
+    private final TransactionTemplate transactions = mock(TransactionTemplate.class);
+    private final SysUserServiceImpl service = new SysUserServiceImpl(mapper, passwordEncoder, storage, files, transactions);
+    private boolean transactionRunning;
+
+    @BeforeEach
+    @SuppressWarnings("unchecked")
+    void executeReferenceTransactions() {
+        when(transactions.execute(any(TransactionCallback.class))).thenAnswer(invocation -> {
+            transactionRunning = true;
+            try {
+                return ((TransactionCallback<?>) invocation.getArgument(0)).doInTransaction(new SimpleTransactionStatus());
+            } finally {
+                transactionRunning = false;
+            }
+        });
+    }
 
     @Test
     void updateStatusDelegatesAndAcceptsOneUpdatedRow() {
@@ -117,11 +143,70 @@ class SysUserServiceImplTest {
 
     @Test
     void deleteAcceptsOneDeletedRow() {
+        when(mapper.selectByIdForUpdate(8L)).thenReturn(user(8L, "operator", "用户", 1));
         when(mapper.deleteById(8L)).thenReturn(1);
 
         service.delete(8L);
 
         verify(mapper).deleteById(8L);
+    }
+
+    @Test
+    void avatarReplacementCommitsReferenceBeforeDeletingOldFile() {
+        SysUser current = user(8L, "operator", "用户", 1);
+        current.setAvatarFileId(11L);
+        SysUser updated = user(8L, "operator", "用户", 1);
+        updated.setAvatarFileId(12L);
+        updated.setUpdatedAt(java.time.LocalDateTime.of(2026, 10, 6, 12, 0));
+        when(mapper.selectById(8L)).thenReturn(current, updated);
+        when(mapper.selectByIdForUpdate(8L)).thenReturn(current);
+        StorageFile uploaded = new StorageFile();
+        uploaded.setId(12L);
+        var file = new MockMultipartFile("file", "avatar.png", "image/png", new byte[]{1});
+        when(storage.storeAvatar(file)).thenAnswer(invocation -> {
+            assertEquals(false, transactionRunning);
+            return uploaded;
+        });
+        when(files.selectByIdForUpdate(12L)).thenReturn(uploaded);
+        when(mapper.updateAvatar(8L, 12L)).thenAnswer(invocation -> {
+            assertEquals(true, transactionRunning);
+            return 1;
+        });
+        doAnswer(invocation -> {
+            assertEquals(false, transactionRunning);
+            return null;
+        }).when(storage).delete(11L);
+
+        var result = service.updateAvatar(8L, file);
+
+        assertEquals("/files/12", result.avatar());
+        assertEquals(updated.getUpdatedAt(), result.updatedAt());
+        var ordered = inOrder(storage, mapper);
+        ordered.verify(storage).storeAvatar(file);
+        ordered.verify(mapper).selectByIdForUpdate(8L);
+        ordered.verify(mapper).updateAvatar(8L, 12L);
+        ordered.verify(storage).delete(11L);
+    }
+
+    @Test
+    void failedReferenceWriteCleansOnlyNewFileAndPreservesOriginalFailure() {
+        when(mapper.selectById(8L)).thenReturn(user(8L, "operator", "用户", 1));
+        when(mapper.selectByIdForUpdate(8L)).thenReturn(user(8L, "operator", "用户", 1));
+        StorageFile uploaded = new StorageFile();
+        uploaded.setId(12L);
+        var file = new MockMultipartFile("file", "avatar.png", "image/png", new byte[]{1});
+        when(storage.storeAvatar(file)).thenReturn(uploaded);
+        when(files.selectByIdForUpdate(12L)).thenReturn(uploaded);
+        var original = new IllegalStateException("database write failed");
+        when(mapper.updateAvatar(8L, 12L)).thenThrow(original);
+        var cleanup = new IllegalStateException("physical delete failed");
+        doThrow(cleanup).when(storage).delete(12L);
+
+        var actual = assertThrows(IllegalStateException.class, () -> service.updateAvatar(8L, file));
+
+        assertEquals(original, actual);
+        assertEquals(cleanup, actual.getSuppressed()[0]);
+        verify(storage).delete(12L);
     }
 
     private SysUser user(Long id, String username, String nickname, Integer status) {

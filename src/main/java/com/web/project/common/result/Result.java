@@ -29,6 +29,13 @@ public record Result<T>(
     }
 
     /**
+     * 请求成功，并返回给前端一条操作提示和数据。
+     */
+    public static <T> Result<T> success(String msg, T data) {
+        return new Result<>(200, msg, data);
+    }
+
+    /**
      * 请求失败，默认使用业务码 500；HTTP 状态由调用边界设置。
      */
     public static <T> Result<T> error(String msg) {

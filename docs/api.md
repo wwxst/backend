@@ -6,7 +6,7 @@
 
 - 基础地址：`http://localhost:8080`
 - 请求和响应编码：UTF-8
-- 登录、注册、Refresh、发送验证码和重置密码接口公开访问；其他接口需要 `Authorization: Bearer <accessToken>`。
+- 登录、注册、Refresh、发送验证码和重置密码接口，以及 GET/HEAD `/files/{id}` 公开访问；其他接口需要 `Authorization: Bearer <accessToken>`。
 - 系统用户接口使用 `SCOPE_admin`，普通用户接口使用 `SCOPE_user`。
 - 资源接口只接受 Access Token，Refresh 接口只接受 Refresh Token。
 
@@ -209,7 +209,38 @@ Authorization: Bearer <accessToken>
 Content-Type: multipart/form-data
 ```
 
-表单字段 `file` 接收 JPG、PNG 或 WEBP 文件，最大 2MB。成功响应返回更新后的系统用户数据，其中 `avatar` 为可直接展示的头像地址。
+表单字段 `file` 接收真实可解码的 JPG、PNG 或 WEBP 文件，最大 2MB、最多1600万像素。以实际图片内容判断格式，不信任请求 MIME 或文件后缀。成功响应返回更新后的系统用户数据，其中 `avatar` 为 `/files/{id}`，数据库保存对应文件 ID。上传根据全局配置选择本地或默认 OSS 空间；切换方式后旧头像仍使用原目的地。
+
+### 文件访问
+
+GET/HEAD `/files/{id}` 无需 Token。本地头像返回图片原始字节、真实 MIME、Content-Length 和 `X-Content-Type-Options: nosniff`；OSS 头像返回 302，指向空间的 HTTPS 访问域名或默认 OSS 域名。文件记录或本地文件不存在返回 404。该公开入口只服务系统头像上传文件，不提供通用文件上传。
+
+## 存储管理
+
+以下接口均要求 `SCOPE_admin`，前缀 `/api/sys-user/storage`，沿用统一响应。
+
+| 方法 | 路径 | 请求 | 响应 data |
+| --- | --- | --- | --- |
+| GET | `/settings` | 无 | `{storageType}` |
+| PUT | `/settings` | `{storageType: "local"或"aliyun"}` | `{storageType}` |
+| GET | `/oss/credentials` | 无 | `{configured: boolean}`，不回传 AccessKeyId 或 Secret |
+| PUT | `/oss/credentials` | `{accessKeyId,accessKeySecret}` | `{configured: true}` |
+| GET | `/spaces` | `page`、`pageSize` | `PageResult<StorageSpaceVO>` |
+| POST | `/spaces` | `{bucketName,regionId,accessPermission}` | `StorageSpaceVO` |
+| POST | `/spaces/sync` | 无 | `{syncedCount}`，本次新增及地域更新的绑定数 |
+| PUT | `/spaces/{id}/default` | 无 | `StorageSpaceVO` |
+| PATCH | `/spaces/{id}/domain` | `{accessDomain}` | `StorageSpaceVO` |
+| DELETE | `/spaces/{id}` | 无 | null |
+
+`StorageSpaceVO` 字段为 `id`、`bucketName`、`regionId`、`accessDomain`、`isDefault`、`createdAt`、`updatedAt`。默认页码1、每页15条，页码至少1，每页1～100；显式空值或越界值返回400。地域输入接受 `cn-hangzhou` 或 `oss-cn-hangzhou`，保存及返回统一为 `oss-cn-hangzhou`，只支持页面已列出的30个标准地域。
+
+凭据两个字段均必填、最多128个可见 ASCII 字符，保存前验证账号能查询 Bucket；启用 OSS 时还验证新凭据能访问默认空间。Secret 用部署密钥加密后保存，任何查询均不返回凭据明文。部署密钥缺失或非法时，凭据保存返回500及明确的中文配置说明，本地功能仍可使用。
+
+绑定只接入现有 Bucket，必填 accessPermission（public-read 或 public-read-write），校验真实地域及 ACL 与所选权限一致，不创建或删除云端 Bucket，也不修改云端 ACL。设置默认空间和切换为 OSS 时重新校验凭据、默认空间、地域及公共读或公共读写权限；同一时间只有一个默认空间。未配置凭据或未选择空间不能切换 OSS。
+
+同步遍历云端 Bucket 分页，不自动删除已有绑定、不改变默认空间或自定义域名。非支持地域的 Bucket 不加入新绑定；已绑定 Bucket 地域变化时，有文件引用则拒绝同步，无引用则更新真实地域。未变化的绑定不计入 `syncedCount`。
+
+访问域名可为空（null或空字符串）；非空须为 HTTPS origin，可带末尾斜杠或443端口，保存时规范化，不允许路径、查询参数、片段或登录凭据。只用于图片重定向，不作为 OSS SDK 请求地址。默认空间或仍有文件引用的空间不能删除；删除只解除本系统绑定。
 
 ### 重置系统用户密码
 

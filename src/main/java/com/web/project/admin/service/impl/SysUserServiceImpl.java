@@ -7,7 +7,9 @@ import com.web.project.admin.dto.UpdateSysUserDTO;
 import com.web.project.admin.entity.SysUser;
 import com.web.project.admin.mapper.SysUserMapper;
 import com.web.project.admin.service.SysUserService;
-import com.web.project.admin.service.SysUserAvatarStorage;
+import com.web.project.storage.entity.StorageFile;
+import com.web.project.storage.mapper.StorageFileMapper;
+import com.web.project.storage.service.StorageService;
 import com.web.project.admin.vo.SysUserListVO;
 import com.web.project.auth.util.PasswordPolicy;
 import com.web.project.common.error.ErrorCode;
@@ -18,6 +20,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
@@ -31,7 +34,9 @@ public class SysUserServiceImpl implements SysUserService {
 
     private final SysUserMapper sysUserMapper;
     private final PasswordEncoder passwordEncoder;
-    private final SysUserAvatarStorage avatarStorage;
+    private final StorageService storageService;
+    private final StorageFileMapper storageFileMapper;
+    private final TransactionTemplate transactions;
 
     /**
      * 分页查询系统用户列表。
@@ -127,31 +132,53 @@ public class SysUserServiceImpl implements SysUserService {
     }
 
     @Override
-    @Transactional
     public SysUserListVO updateAvatar(Long id, MultipartFile avatarFile) {
-        SysUser currentUser = sysUserMapper.selectById(id);
-        if (currentUser == null) {
+        if (sysUserMapper.selectById(id) == null) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "系统用户不存在");
         }
 
-        String avatar = avatarStorage.store(avatarFile);
+        StorageFile uploaded = storageService.storeAvatar(avatarFile);
+        AvatarChange change;
         try {
-            requireExistingUser(sysUserMapper.updateAvatar(id, avatar));
+            change = transactions.execute(status -> {
+                if (storageFileMapper.selectByIdForUpdate(uploaded.getId()) == null) {
+                    throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR);
+                }
+                SysUser current = sysUserMapper.selectByIdForUpdate(id);
+                if (current == null) {
+                    throw new BusinessException(ErrorCode.BAD_REQUEST, "系统用户不存在");
+                }
+                Long previousFileId = current.getAvatarFileId();
+                requireExistingUser(sysUserMapper.updateAvatar(id, uploaded.getId()));
+                return new AvatarChange(toListVO(sysUserMapper.selectById(id)), previousFileId);
+            });
         } catch (RuntimeException exception) {
-            avatarStorage.delete(avatar);
+            try {
+                storageService.delete(uploaded.getId());
+            } catch (RuntimeException cleanupFailure) {
+                exception.addSuppressed(cleanupFailure);
+            }
             throw exception;
         }
 
-        avatarStorage.delete(currentUser.getAvatar());
-        return toListVO(sysUserMapper.selectById(id));
+        storageService.delete(change.previousFileId());
+        return change.user();
     }
 
     @Override
-    @Transactional
     public void delete(Long id) {
-        SysUser currentUser = sysUserMapper.selectById(id);
-        requireExistingUser(sysUserMapper.deleteById(id));
-        avatarStorage.delete(currentUser == null ? null : currentUser.getAvatar());
+        Long previousFileId = transactions.execute(status -> {
+            SysUser current = sysUserMapper.selectByIdForUpdate(id);
+            if (current == null) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "系统用户不存在");
+            }
+            requireExistingUser(sysUserMapper.deleteById(id));
+            return current.getAvatarFileId();
+        });
+        storageService.delete(previousFileId);
+    }
+
+    private record AvatarChange(SysUserListVO user, Long previousFileId) {
     }
 
     private void requireExistingUser(int affectedRows) {
@@ -168,7 +195,7 @@ public class SysUserServiceImpl implements SysUserService {
                 sysUser.getId(),
                 sysUser.getUsername(),
                 sysUser.getNickname(),
-                sysUser.getAvatar(),
+                StorageService.url(sysUser.getAvatarFileId()),
                 sysUser.getStatus(),
                 sysUser.getCreatedAt(),
                 sysUser.getUpdatedAt());

@@ -22,6 +22,11 @@ public interface SysUserMapper {
     SysUser selectById(@Param("id") Long id);
 
     /**
+     * 在头像引用更新或删除账号的短事务内读取并锁定当前账号。
+     */
+    SysUser selectByIdForUpdate(@Param("id") Long id);
+
+    /**
      * 查询符合条件的系统用户总数。
      */
     long countByCondition(
@@ -69,7 +74,7 @@ public interface SysUserMapper {
     /**
      * 更新系统用户头像。
      */
-    int updateAvatar(@Param("id") Long id, @Param("avatar") String avatar);
+    int updateAvatar(@Param("id") Long id, @Param("avatarFileId") Long avatarFileId);
 
     /**
      * 删除系统用户。

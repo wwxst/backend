@@ -5,6 +5,8 @@ import base64
 from concurrent.futures import ThreadPoolExecutor
 import json
 import math
+import struct
+import zlib
 import os
 from pathlib import Path
 import secrets
@@ -77,12 +79,14 @@ class BackendGate:
         self.env.update(JAVA_HOME=str(args.java_home), DB_URL=self.jdbc_url,
                         ATLAS_MYSQL_TEST_URL=self.jdbc_url, REDIS_HOST="127.0.0.1",
                         REDIS_PORT=str(self.redis_port), REDIS_DATABASE="0", REDIS_PASSWORD="",
-                        JWT_SECRET=base64.b64encode(secrets.token_bytes(32)).decode())
+                        JWT_SECRET=base64.b64encode(secrets.token_bytes(32)).decode(),
+                        UPLOAD_DIR=str(self.workspace / "uploads"),
+                        STORAGE_ENCRYPTION_KEY=base64.b64encode(secrets.token_bytes(32)).decode())
         self.env["MYSQL_PWD"] = self.env.get("DB_PASSWORD", "123456")
         self.redis = None
         self.app = None
         self.created_database = False
-        self.sensitive = [self.env["JWT_SECRET"]]
+        self.sensitive = [self.env["JWT_SECRET"], self.env["STORAGE_ENCRYPTION_KEY"]]
         self.report = {"scenarios": [], "pressure": [], "performance_scope": "local baseline, no production SLA",
                        "verification_scope": "automated verification; standards checks and reviews recorded separately"}
         self.http = build_opener(ProxyHandler({}))
@@ -217,6 +221,7 @@ class BackendGate:
             self.check("channel update", "PUT", "/api/sys-user/auth-channels/" + channel,
                        {"enabled": True, "codeEnabled": True}, self.sys_token)
         self.channel_checks()
+        self.storage_checks()
         self.sql("UPDATE sys_user SET status=0 WHERE username='admin'")
         try:
             self.check("disabled system profile", "GET", "/api/sys-user/auth/me", token=self.sys_token,
@@ -632,6 +637,93 @@ class BackendGate:
         require(not any(value in text for value in self.sensitive), "Application log exposed a sensitive value")
         self.report["log_sensitive_scan"] = "passed"
         self.report["intentional_fault_responses"] = 2
+
+    def storage_checks(self):
+        prefix = "/api/sys-user/storage"
+        settings = self.check("storage default local", "GET", prefix + "/settings", token=self.sys_token)
+        require(settings == {"storageType": "local"}, "Unexpected storage defaults")
+        credentials = self.check("OSS credentials status", "GET", prefix + "/oss/credentials", token=self.sys_token)
+        require(credentials == {"configured": False}, "Credentials response must only expose status")
+        spaces = self.check("empty storage spaces", "GET", prefix + "/spaces?page=1&pageSize=15", token=self.sys_token)
+        require(spaces["total"] == 0 and spaces["records"] == [], "Unexpected initial storage bindings")
+        self.check("storage auth required", "GET", prefix + "/settings", status=401, code=40102)
+        self.check("local storage save", "PUT", prefix + "/settings", {"storageType": "local"}, self.sys_token)
+        self.check("OSS switch without credentials rejected", "PUT", prefix + "/settings",
+                   {"storageType": "aliyun"}, self.sys_token, status=400, code=40000)
+        self.check("unsupported storage rejected", "PUT", prefix + "/settings",
+                   {"storageType": "other"}, self.sys_token, status=400, code=40000)
+        self.check("invalid region rejected", "POST", prefix + "/spaces",
+                   {"bucketName": "storage-check", "regionId": "invalid", "accessDomain": None, "accessPermission": "public-read"},
+                   self.sys_token, status=400, code=40000)
+        for permission in (None, "private", "invalid"):
+            self.check("unsupported storage permission rejected: " + str(permission), "POST", prefix + "/spaces",
+                       {"bucketName": "storage-check", "regionId": "cn-hangzhou", "accessPermission": permission},
+                       self.sys_token, status=400, code=40000)
+        self.check("storage page bound", "GET", prefix + "/spaces?pageSize=101",
+                   token=self.sys_token, status=400, code=40000)
+        account = self.check("avatar test account", "POST", "/api/sys-user/sys-users",
+                             {"username": "storage-check", "nickname": "存储测试", "password": self.password, "status": 1},
+                             self.sys_token)
+        account_id = account["id"]
+        def png(color):
+            def chunk(kind, data):
+                return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+            return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0))
+                    + chunk(b"IDAT", zlib.compress(bytes([0, color, 0, 0, 255]))) + chunk(b"IEND", b""))
+        def upload(data, mime="image/png"):
+            boundary = "atlas-" + uuid.uuid4().hex
+            body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"avatar.png\"\r\n"
+                    f"Content-Type: {mime}\r\n\r\n").encode() + data + f"\r\n--{boundary}--\r\n".encode()
+            request = Request(f"http://127.0.0.1:{self.http_port}/api/sys-user/sys-users/{account_id}/avatar",
+                              data=body, method="POST", headers={"Content-Type": "multipart/form-data; boundary=" + boundary,
+                              "Authorization": "Bearer " + self.sys_token})
+            try:
+                response = self.http.open(request, timeout=15)
+            except HTTPError as failure:
+                response = failure
+            with response:
+                return response.status, json.loads(response.read())
+        first_png = png(20)
+        status, body = upload(first_png)
+        require(status == 200, "Local avatar upload failed")
+        first_url = body["data"]["avatar"]
+        require(first_url.startswith("/files/"), "Avatar must use a stable file ID URL")
+        with self.http.open(f"http://127.0.0.1:{self.http_port}" + first_url, timeout=10) as response:
+            require(response.status == 200 and response.read() == first_png, "Public file read changed image bytes")
+            require(response.headers.get("X-Content-Type-Options") == "nosniff", "File read missing nosniff")
+        self.report["scenarios"].append({"name": "local avatar upload and anonymous byte-identical read", "passed": True})
+        first_id = int(first_url.rsplit("/", 1)[1])
+        self.sql(f"ALTER TABLE sys_user ADD CONSTRAINT chk_storage_reference_fault "
+                 f"CHECK (username <> 'storage-check' OR avatar_file_id = {first_id})")
+        try:
+            status, failure = upload(png(99))
+            require(status == 500 and failure.get("code") == 50000, "Database fault must reject avatar reference")
+            require(failure.get("msg") == "服务器内部异常", "Database failure exposed internal details")
+            require(self.sql(f"SELECT avatar_file_id FROM sys_user WHERE id={account_id}") == str(first_id),
+                    "Failed reference update changed old avatar")
+            require(self.sql("SELECT COUNT(*) FROM storage_file") == "1", "Failed reference update leaked new file metadata")
+            require(len(list((self.workspace / "uploads" / "avatars").glob("*"))) == 1,
+                    "Failed reference update leaked new physical file")
+            with self.http.open(f"http://127.0.0.1:{self.http_port}" + first_url, timeout=10) as response:
+                require(response.read() == first_png, "Failed reference update removed old image")
+        finally:
+            self.sql("ALTER TABLE sys_user DROP CHECK chk_storage_reference_fault")
+        self.report["scenarios"].append({"name": "real database reference failure retains old image and cleans new upload", "passed": True})
+        status, _ = upload(b"not an image")
+        require(status == 400, "Invalid image bytes were accepted")
+        require(self.sql("SELECT COUNT(*) FROM storage_file") == "1", "Invalid upload changed file metadata")
+        with ThreadPoolExecutor(max_workers=4) as workers:
+            results = list(workers.map(lambda color: upload(png(color)), range(21, 25)))
+        require(all(status == 200 for status, _ in results), "Concurrent avatar replacement failed")
+        require(self.sql("SELECT COUNT(*) FROM storage_file") == "1", "Concurrent avatar replacements leaked metadata")
+        require(len(list((self.workspace / "uploads" / "avatars").glob("*"))) == 1,
+                "Concurrent avatar replacements leaked physical files")
+        self.report["scenarios"].append({"name": "concurrent avatar replacement keeps one reference and physical file", "passed": True})
+        self.check("avatar account delete", "DELETE", f"/api/sys-user/sys-users/{account_id}", token=self.sys_token)
+        require(self.sql("SELECT COUNT(*) FROM storage_file") == "0", "Account delete retained avatar metadata")
+        require(not list((self.workspace / "uploads" / "avatars").glob("*")), "Account delete retained physical files")
+        self.report["scenarios"].append({"name": "account delete cleans committed avatar", "passed": True})
+        self.report["oss_live"] = "not_verified: real OSS credentials and public-read Bucket not configured"
 
     def stop_app(self):
         if self.app is not None and self.app.poll() is None:

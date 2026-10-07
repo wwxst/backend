@@ -61,6 +61,14 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void invalidPathIdReturnsBadRequestWithoutCallingService() throws Exception {
+        mvc.perform(delete("/api/sys-user/sys-users/not-a-number"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40000))
+                .andExpect(jsonPath("$.msg").value(ErrorCode.BAD_REQUEST.getDefaultMessage()));
+        verifyNoInteractions(sysUsers);
+    }
+
+    @Test
     void invalidCreatedAtOrderReturnsBadRequestWithoutCallingService() throws Exception {
         for (String path : List.of("/api/sys-user/sys-users", "/api/sys-user/users")) {
             for (String order : List.of("", "ASC", "invalid", "asc;DROP TABLE sys_user")) {

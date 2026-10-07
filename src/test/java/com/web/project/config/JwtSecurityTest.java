@@ -50,6 +50,17 @@ class JwtSecurityTest {
     @MockitoBean UserAccountService users;
 
     @Test
+    void storageManagementRequiresAdminAndOnlyFileReadsArePublic() throws Exception {
+        mvc.perform(get("/api/sys-user/storage/settings")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/sys-user/storage/settings")
+                        .header("Authorization", "Bearer " + userAccessToken()))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/files/not-an-id")).andExpect(status().isBadRequest());
+        mvc.perform(head("/files/not-an-id")).andExpect(status().isBadRequest());
+        mvc.perform(post("/files/1")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void adminCanEditOrdinaryUserButUserAnonymousAndRefreshCannot() throws Exception {
         String path = "/api/sys-user/users/5";
         String payload = "{\"nickname\":\"昵称\",\"phone\":null,\"email\":\"new@example.com\"}";

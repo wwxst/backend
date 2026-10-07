@@ -247,6 +247,23 @@ class MapperIntegrationTest {
     }
 
     @Test
+    void systemAvatarReferencesFileIdAndLockedReadUsesFreshSchema() {
+        jdbcTemplate.update("""
+                INSERT INTO storage_file (provider, storage_key, content_type, size_bytes)
+                VALUES ('local', 'sys-users/mapper-avatar.png', 'image/png', 7)
+                """);
+        Long fileId = jdbcTemplate.queryForObject(
+                "SELECT id FROM storage_file WHERE storage_key = ?", Long.class, "sys-users/mapper-avatar.png");
+        Long userId = sysUserMapper.selectByUsername("admin").getId();
+        assertEquals(1, sysUserMapper.updateAvatar(userId, fileId));
+        assertEquals(fileId, sysUserMapper.selectById(userId).getAvatarFileId());
+        assertEquals(fileId, sysUserMapper.selectByIdForUpdate(userId).getAvatarFileId());
+        assertNull(sysUserMapper.selectByIdForUpdate(userId).getPassword());
+        assertEquals(1, sysUserMapper.updateAvatar(userId, null));
+        assertNull(sysUserMapper.selectById(userId).getAvatarFileId());
+    }
+
+    @Test
     void repeatedChannelUpdateSucceedsAndInvalidConfigurationIsRejected() {
         for (int attempt = 0; attempt < 2; attempt++) {
             assertDoesNotThrow(() -> authChannelService.updateChannel(

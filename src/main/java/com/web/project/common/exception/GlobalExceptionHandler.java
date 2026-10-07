@@ -12,6 +12,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.ErrorResponse;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
  * 全局异常处理器。
@@ -59,6 +60,12 @@ public class GlobalExceptionHandler {
         );
 
         return ResponseEntity.status(ErrorCode.BAD_REQUEST.getHttpStatus()).body(result);
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Result<Void>> handleInvalidArgumentType(MethodArgumentTypeMismatchException exception) {
+        return ResponseEntity.badRequest().body(Result.error(
+                ErrorCode.BAD_REQUEST.getCode(), ErrorCode.BAD_REQUEST.getDefaultMessage()));
     }
 
     /**

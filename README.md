@@ -10,6 +10,7 @@
 - 系统用户可查询和修改手机号、邮箱两个认证渠道的开关。
 - 系统用户分页查询系统用户和普通用户列表，可按关键词、状态筛选，并可直接编辑普通用户昵称、手机号和邮箱。
 - BCrypt 密码验证、JWT 认证及 `SCOPE_admin` / `SCOPE_user` 权限隔离。
+- 本地/阿里云 OSS 存储配置、现有 Bucket 绑定管理及统一系统用户头像上传、访问和清理。
 
 普通用户前端尚未实现；管理端前端已接入系统用户双 Token。
 
@@ -63,12 +64,14 @@ src/main/resources/mapper/
 ## 启动
 
 1. 使用 IntelliJ IDEA 为项目配置的 JDK，具体步骤见[后端工程规范](docs/engineering.md)。
-2. 准备 MySQL 和 Redis。新环境执行 `web_project.sql`，创建 `sys_user`、`user_account`、`sys_config` 表，写入本地开发账号 `admin`（密码 `123456`）和 4 项渠道配置。
+2. 准备 MySQL 和 Redis。新环境执行 `web_project.sql`，创建账号、配置、空间、文件共5张表，写入本地开发账号 `admin`（密码 `123456`）、4项渠道配置和4项存储配置。已存在数据库跳过建库；建表语句仍要求新表环境。
 3. 数据库连接可通过 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD` 指定；Redis 连接可通过 `REDIS_HOST`、`REDIS_PORT`、`REDIS_DATABASE`、`REDIS_PASSWORD` 指定，默认连接 `localhost:6379` 的 0 号库。
 4. 本地开发可以直接启动，`src/main/resources/application.yml` 已提供本地 JWT 默认密钥；需要替换密钥时，在 IDEA 启动配置或 Maven Runner 中设置 `JWT_SECRET`。
 5. 运行 `WebProjectApplication`，或在 Maven 面板执行 `spring-boot:run`。默认地址为 `http://localhost:8080`。
 
 密钥生成方法及构建验证命令见[后端工程规范](docs/engineering.md)。
+
+本地上传目录用 `UPLOAD_DIR` 指定，默认 `uploads`。接入 OSS 前设置 `STORAGE_ENCRYPTION_KEY` 为 Base64 编码的32字节随机密钥，并长期保留该密钥；更换后已保存的 OSS Secret 不能解密，需要重新保存凭据。通过存储设置页面保存一套凭据、绑定或同步已有 Bucket、选定公共读或公共读写默认空间，再保存全局阿里云存储方式。详细行为见[存储数据库设计](docs/存储数据库设计.md)。
 
 ## 数据库
 

@@ -12,7 +12,7 @@
         username,
         password,
         nickname,
-        avatar,
+        avatar_file_id,
         status,
         created_at,
         updated_at
@@ -23,7 +23,7 @@
         id,
         username,
         nickname,
-        avatar,
+        avatar_file_id,
         status,
         created_at,
         updated_at
@@ -63,6 +63,14 @@
         FROM sys_user
         WHERE id = #{id}
         LIMIT 1
+    </select>
+
+    <select id="selectByIdForUpdate" resultType="com.web.project.admin.entity.SysUser">
+        SELECT
+        <include refid="SysUserSafeColumns"/>
+        FROM sys_user
+        WHERE id = #{id}
+        FOR UPDATE
     </select>
 
     <!-- 查询符合条件的数据总数 -->
@@ -119,7 +127,7 @@
     <!-- 更新系统用户头像。 -->
     <update id="updateAvatar">
         UPDATE sys_user
-        SET avatar = #{avatar}
+        SET avatar_file_id = #{avatarFileId}
         WHERE id = #{id}
     </update>
 

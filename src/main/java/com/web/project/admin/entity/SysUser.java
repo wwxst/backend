@@ -22,7 +22,7 @@ public class SysUser {
 
     private String nickname;
 
-    private String avatar;
+    private Long avatarFileId;
 
     /**
      * 账号状态：1正常，0禁用。

@@ -26,6 +26,15 @@ class SysUserTableNamingTest {
         assertTrue(mapper.contains("FROM sys_user"));
     }
 
+    @Test
+    void systemAvatarUsesFileIdInSchemaAndMapper() throws IOException {
+        String schema = read("web_project.sql");
+        String mapper = read("src/main/resources/mapper/admin/SysUserMapper.xml");
+        assertTrue(schema.contains("avatar_file_id"));
+        assertTrue(mapper.contains("avatar_file_id"));
+        assertFalse(mapper.contains("SET avatar ="));
+    }
+
     private String read(String relativePath) throws IOException {
         return Files.readString(projectRoot.resolve(relativePath), StandardCharsets.UTF_8);
     }
