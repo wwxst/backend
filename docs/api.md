@@ -102,9 +102,18 @@ Content-Type: application/json
 }
 ```
 
-登录失败返回 `40101`。账号被禁用返回 `40302`。
+登录失败返回 `40101`。账号被禁用返回 `40302`。登录 IP 或账号窗口限流、或 BCrypt 并发保护达到上限时返回 HTTP `429` 和业务码 `42901`；该响应不携带 Token。
 
 登录成功后由管理端再调用 `GET /api/sys-user/auth/me` 获取资料。
+
+### 登录保护指标
+
+```http
+GET /api/sys-user/auth/login-metrics
+Authorization: Bearer <accessToken>
+```
+
+仅 `SCOPE_admin` 可调用。返回当前 BCrypt 校验并发数、校验次数、累计校验耗时、Semaphore 拒绝次数和 Redis 限流次数；不包含账号、IP、密码或 Token。
 
 ### 刷新 Access Token
 

@@ -18,6 +18,9 @@ public enum ErrorCode {
     // 登录账号或密码不正确。
     INVALID_CREDENTIALS(40101, HttpStatus.UNAUTHORIZED, "auth.invalid_credentials", "账号或密码错误"),
 
+    // 登录请求超过并发或 Redis 窗口限制。
+    LOGIN_RATE_LIMITED(42901, HttpStatus.TOO_MANY_REQUESTS, "auth.login_rate_limited", "登录请求过于频繁，请稍后再试"),
+
     // Token 无效或者已过期
     LOGIN_STATUS_INVALID(40102, HttpStatus.UNAUTHORIZED, "auth.login_status_invalid", "登录状态无效或已过期"),
 

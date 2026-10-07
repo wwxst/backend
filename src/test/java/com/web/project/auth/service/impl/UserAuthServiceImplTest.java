@@ -6,6 +6,9 @@ import com.web.project.auth.dto.UserRegisterDTO;
 import com.web.project.auth.model.AccountType;
 import com.web.project.auth.model.TargetType;
 import com.web.project.auth.model.VerificationScene;
+import com.web.project.auth.protection.LoginProtectionMetrics;
+import com.web.project.auth.protection.LoginProtectionProperties;
+import com.web.project.auth.protection.PasswordVerificationGuard;
 import com.web.project.auth.service.AuthSessionService;
 import com.web.project.auth.service.VerificationCodeService;
 import com.web.project.auth.vo.TokenPairVO;
@@ -20,6 +23,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.time.Duration;
+
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -30,13 +35,18 @@ class UserAuthServiceImplTest {
     private final AuthSessionService authSessionService = mock(AuthSessionService.class);
     private final VerificationCodeService verificationCodeService = mock(VerificationCodeService.class);
     private final AuthChannelService authChannelService = mock(AuthChannelService.class);
+    private final PasswordVerificationGuard passwordVerificationGuard = new PasswordVerificationGuard(
+            new LoginProtectionProperties(8, Duration.ofSeconds(60), 60, 20),
+            new LoginProtectionMetrics()
+    );
 
     private final UserAuthServiceImpl service = new UserAuthServiceImpl(
             userAccountMapper,
             passwordEncoder,
             authSessionService,
             verificationCodeService,
-            authChannelService
+            authChannelService,
+            passwordVerificationGuard
     );
 
     @BeforeEach

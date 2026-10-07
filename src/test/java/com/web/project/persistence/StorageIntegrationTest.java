@@ -34,6 +34,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -106,6 +107,39 @@ class StorageIntegrationTest {
         assertNull(spaces.selectById(first.getId()));
         assertNotNull(spaces.selectById(second.getId()));
         verifyNoInteractions(oss);
+    }
+
+    @Test
+    void concurrentDefaultSelectionLeavesOneDefaultSpace() throws Exception {
+        StorageSpace first = createSpace();
+        StorageSpace second = createSpace();
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var firstAttempt = executor.submit(() -> selectDefault(first, ready, start));
+            var secondAttempt = executor.submit(() -> selectDefault(second, ready, start));
+            assertTrue(ready.await(5, TimeUnit.SECONDS));
+            start.countDown();
+            assertDoesNotThrow(() -> firstAttempt.get(5, TimeUnit.SECONDS));
+            assertDoesNotThrow(() -> secondAttempt.get(5, TimeUnit.SECONDS));
+        }
+
+        Long selected = settings.snapshot().defaultSpaceId();
+        assertTrue(Objects.equals(selected, first.getId()) || Objects.equals(selected, second.getId()));
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_config WHERE config_key = 'storage.aliyun.default-space-id' "
+                        + "AND config_value <> ''", Integer.class));
+    }
+
+    private Boolean selectDefault(StorageSpace space, CountDownLatch ready, CountDownLatch start) throws Exception {
+        ready.countDown();
+        assertTrue(start.await(5, TimeUnit.SECONDS));
+        try {
+            settings.setDefault(space.getId());
+        } catch (BusinessException expectedRace) {
+            assertEquals(ErrorCode.BAD_REQUEST, expectedRace.getErrorCode());
+        }
+        return true;
     }
 
     @Test

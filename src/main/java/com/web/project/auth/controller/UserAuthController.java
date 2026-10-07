@@ -7,12 +7,16 @@ import com.web.project.auth.dto.UserLoginDTO;
 import com.web.project.auth.dto.UserRegisterDTO;
 import com.web.project.auth.model.AccountType;
 import com.web.project.auth.service.UserAuthService;
+import com.web.project.auth.protection.ClientIpResolver;
+import com.web.project.auth.protection.LoginRateLimiter;
+import com.web.project.auth.util.ContactNormalizer;
 import com.web.project.auth.util.JwtClaims;
 import com.web.project.auth.vo.AccessTokenVO;
 import com.web.project.auth.vo.TokenPairVO;
 import com.web.project.common.result.Result;
 import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -28,10 +32,31 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/user/auth")
-@RequiredArgsConstructor
 public class UserAuthController {
 
     private final UserAuthService userAuthService;
+    private final LoginRateLimiter loginRateLimiter;
+    private final ClientIpResolver clientIpResolver;
+
+    @Autowired
+    public UserAuthController(
+            UserAuthService userAuthService,
+            LoginRateLimiter loginRateLimiter,
+            ClientIpResolver clientIpResolver
+    ) {
+        this.userAuthService = userAuthService;
+        this.loginRateLimiter = loginRateLimiter;
+        this.clientIpResolver = clientIpResolver;
+    }
+
+    public UserAuthController(UserAuthService userAuthService, LoginRateLimiter loginRateLimiter) {
+        this(userAuthService, loginRateLimiter, null);
+    }
+
+    /** standalone MVC 测试构造器；生产容器使用带限流器的构造器。 */
+    public UserAuthController(UserAuthService userAuthService) {
+        this(userAuthService, null, null);
+    }
 
     /**
      * 发送验证码。
@@ -60,8 +85,16 @@ public class UserAuthController {
      */
     @PostMapping("/login")
     public Result<TokenPairVO> login(
-            @Valid @RequestBody UserLoginDTO loginDTO
+            @Valid @RequestBody UserLoginDTO loginDTO,
+            HttpServletRequest request
     ) {
+        if (loginRateLimiter != null && !loginRateLimiter.allow(
+                clientIpResolver == null ? request.getRemoteAddr() : clientIpResolver.resolve(request),
+                "USER:" + loginDTO.targetType().name() + ":"
+                        + ContactNormalizer.normalize(loginDTO.targetType(), loginDTO.target()))) {
+            throw new com.web.project.common.exception.BusinessException(
+                    com.web.project.common.error.ErrorCode.LOGIN_RATE_LIMITED);
+        }
         return Result.success(userAuthService.login(loginDTO));
     }
 

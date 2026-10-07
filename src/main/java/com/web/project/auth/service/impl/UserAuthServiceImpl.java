@@ -8,6 +8,7 @@ import com.web.project.auth.dto.UserRegisterDTO;
 import com.web.project.auth.model.AccountType;
 import com.web.project.auth.model.TargetType;
 import com.web.project.auth.model.VerificationScene;
+import com.web.project.auth.protection.PasswordVerificationGuard;
 import com.web.project.auth.service.AuthSessionService;
 import com.web.project.auth.service.UserAuthService;
 import com.web.project.auth.service.VerificationCodeService;
@@ -21,11 +22,11 @@ import com.web.project.common.error.ErrorCode;
 import com.web.project.common.exception.BusinessException;
 import com.web.project.user.entity.UserAccount;
 import com.web.project.user.mapper.UserAccountMapper;
-import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.security.SecureRandom;
 
@@ -35,7 +36,6 @@ import java.security.SecureRandom;
  * 普通用户使用手机号或邮箱注册、登录，成功后调用公共会话服务签发双 Token。
  */
 @Service
-@RequiredArgsConstructor
 public class UserAuthServiceImpl implements UserAuthService {
 
     private static final int MAX_USER_NO_ATTEMPTS = 5;
@@ -50,6 +50,24 @@ public class UserAuthServiceImpl implements UserAuthService {
     private final AuthSessionService authSessionService;
     private final VerificationCodeService verificationCodeService;
     private final AuthChannelService authChannelService;
+    private final PasswordVerificationGuard passwordVerificationGuard;
+
+    @Autowired
+    public UserAuthServiceImpl(
+            UserAccountMapper userAccountMapper,
+            PasswordEncoder passwordEncoder,
+            AuthSessionService authSessionService,
+            VerificationCodeService verificationCodeService,
+            AuthChannelService authChannelService,
+            PasswordVerificationGuard passwordVerificationGuard
+    ) {
+        this.userAccountMapper = userAccountMapper;
+        this.passwordEncoder = passwordEncoder;
+        this.authSessionService = authSessionService;
+        this.verificationCodeService = verificationCodeService;
+        this.authChannelService = authChannelService;
+        this.passwordVerificationGuard = passwordVerificationGuard;
+    }
 
     @Override
     public void sendCode(SendCodeDTO dto, Long currentUserId) {
@@ -160,7 +178,8 @@ public class UserAuthServiceImpl implements UserAuthService {
         if (hasPassword) {
             // 没有密码的账号只能使用验证码登录
             if (account.getPassword() == null
-                    || !passwordEncoder.matches(
+                    || !passwordVerificationGuard.matches(
+                            passwordEncoder,
                             loginDTO.password(),
                             account.getPassword()
                     )) {

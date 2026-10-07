@@ -88,7 +88,13 @@ class BackendGate:
         self.created_database = False
         self.sensitive = [self.env["JWT_SECRET"], self.env["STORAGE_ENCRYPTION_KEY"]]
         self.report = {"scenarios": [], "pressure": [], "performance_scope": "local baseline, no production SLA",
-                       "verification_scope": "automated verification; standards checks and reviews recorded separately"}
+                       "verification_scope": "automated verification; standards checks and reviews recorded separately",
+                       "resource_metrics": {
+                           "tomcat": "JVM process thread count used as an available proxy; connector pool metrics are not exposed",
+                           "hikari": "not exposed by the current application; MySQL Threads_connected recorded",
+                           "redis": "used_memory from private Redis INFO memory",
+                           "jvm": "process CPU, working set and thread count",
+                       }}
         self.http = build_opener(ProxyHandler({}))
 
     @property
@@ -171,7 +177,8 @@ class BackendGate:
         self.sensitive.extend(pair.values())
         return pair
 
-    def start_app(self):
+    def start_app(self, pressure_mode=None):
+        self.pressure_mode = pressure_mode or "default"
         agent = (Path.home() / ".m2/repository/org/jacoco/org.jacoco.agent/0.8.15/"
                  "org.jacoco.agent-0.8.15-runtime.jar")
         require(agent.is_file(), "JaCoCo agent was not resolved by Maven")
@@ -180,6 +187,18 @@ class BackendGate:
                    "-jar", str(ROOT / "target/backend-0.0.1-SNAPSHOT.jar"),
                    f"--server.port={self.http_port}", "--server.address=127.0.0.1",
                    "--spring.data.redis.timeout=1s", "--spring.data.redis.connect-timeout=1s"]
+        if pressure_mode == "control":
+            command.extend([
+                "--app.auth.login-protection.max-concurrent-password-checks=100000",
+                "--app.auth.login-protection.max-attempts-per-ip=1000000000",
+                "--app.auth.login-protection.max-attempts-per-account=1000000000",
+            ])
+        elif pressure_mode == "protected":
+            command.extend([
+                "--app.auth.login-protection.max-concurrent-password-checks=8",
+                "--app.auth.login-protection.max-attempts-per-ip=1000000000",
+                "--app.auth.login-protection.max-attempts-per-account=1000000000",
+            ])
         with (self.workspace / "application.log").open("wb") as log:
             self.app = subprocess.Popen(command, cwd=ROOT, env=self.env, stdout=log,
                                         stderr=subprocess.STDOUT, creationflags=NO_WINDOW)
@@ -557,65 +576,165 @@ class BackendGate:
     def process_metrics(self):
         result = subprocess.run(
             ["powershell", "-NoProfile", "-Command",
-             f"Get-Process -Id {self.app.pid} | Select-Object CPU,WorkingSet64 | ConvertTo-Json -Compress"],
+             f"Get-Process -Id {self.app.pid} | Select-Object CPU,WorkingSet64,@{{Name='Threads';Expression={{$_.Threads.Count}}}} | ConvertTo-Json -Compress"],
             text=True, capture_output=True, timeout=10, creationflags=NO_WINDOW)
         require(result.returncode == 0, "Cannot collect Java process resource metrics")
         return json.loads(result.stdout)
 
+    def login_rate_limit_checks(self):
+        redis_command(self.redis_port, "FLUSHDB")
+        counts = {"2xx": 0, "429": 0, "5xx": 0, "timeout": 0, "other": 0}
+        for _ in range(21):
+            try:
+                status, body, _ = self.request(
+                    "POST", "/api/user/auth/login",
+                    {"target": self.email, "targetType": "EMAIL", "password": self.password})
+                if 200 <= status < 300 and body.get("code") == 200:
+                    counts["2xx"] += 1
+                elif status == 429 and body.get("code") == 42901:
+                    counts["429"] += 1
+                elif status >= 500:
+                    counts["5xx"] += 1
+                else:
+                    counts["other"] += 1
+            except (TimeoutError, socket.timeout, URLError):
+                counts["timeout"] += 1
+        require(counts["429"] > 0 and counts["5xx"] == 0 and counts["timeout"] == 0,
+                "Redis login limit did not produce a controlled HTTP 429")
+        self.report["login_rate_limit"] = counts
+
     def pressure(self):
         # Baseline contract fixed before load: zero unexpected errors and a working recovery probe.
-        self.report["baseline_contract"] = {"workers": [1, 8, 24], "seconds_per_stage": self.args.seconds,
+        self.report["baseline_contract"] = {"workers": [1, 8, 24, 48], "seconds_per_stage": self.args.seconds,
                                             "operation_mix": "40% profile, 40% refresh, 20% password login",
-                                            "unexpected_error_rate": 0, "recovery_http_status": 200,
+                                            "password_login_stages": True,
+                                            "accepted_statuses": [200, 429], "unexpected_error_rate": 0,
+                                            "recovery_http_status": 200,
                                             "latency_sla": None}
         self.report["warmup_requests"] = 20
         for _ in range(20):
             self.check("load warmup", "GET", "/api/user/me", token=self.user_pair["accessToken"])
-        for workers in (1, 8, 24):
+
+        def run_stage(workers, mode):
+            # Each stage uses a fresh private Redis session and rate-limit window.
+            redis_command(self.redis_port, "FLUSHDB")
+            self.user_pair = self.login(self.email, self.password)
+            access_token = self.user_pair["accessToken"]
+            refresh_token = self.user_pair["refreshToken"]
             before = self.process_metrics()
             start = time.perf_counter()
             deadline = start + self.args.seconds
 
             def worker(worker_index):
-                timings, errors = [], 0
+                timings = []
+                successful_timings = []
+                operation_timings = {"me": [], "refresh": [], "login": []}
+                successful_operation_timings = {"me": [], "refresh": [], "login": []}
+                counts = {"2xx": 0, "429": 0, "5xx": 0, "timeout": 0, "other": 0}
                 operation = worker_index
                 while time.perf_counter() < deadline:
-                    if operation % 5 < 2:
-                        status, body, elapsed = self.request("GET", "/api/user/me",
-                                                             token=self.user_pair["accessToken"])
-                    elif operation % 5 < 4:
-                        status, body, elapsed = self.request("POST", "/api/user/auth/refresh",
-                                                             {"refreshToken": self.user_pair["refreshToken"]})
-                    else:
-                        status, body, elapsed = self.request("POST", "/api/user/auth/login",
-                                                             {"target": self.email, "targetType": "EMAIL",
-                                                              "password": self.password})
-                    errors += (status, body.get("code")) != (200, 200)
-                    timings.append(elapsed)
+                    started = time.perf_counter()
+                    operation_name = "login"
+                    try:
+                        if mode == "password":
+                            status, body, _ = self.request("POST", "/api/user/auth/login",
+                                                           {"target": self.email, "targetType": "EMAIL",
+                                                            "password": self.password})
+                        elif operation % 5 < 2:
+                            operation_name = "me"
+                            status, body, _ = self.request("GET", "/api/user/me", token=access_token)
+                        elif operation % 5 < 4:
+                            operation_name = "refresh"
+                            status, body, _ = self.request("POST", "/api/user/auth/refresh",
+                                                           {"refreshToken": refresh_token})
+                        else:
+                            status, body, _ = self.request("POST", "/api/user/auth/login",
+                                                           {"target": self.email, "targetType": "EMAIL",
+                                                            "password": self.password})
+                        timings.append((time.perf_counter() - started) * 1000)
+                        operation_timings[operation_name].append(timings[-1])
+                        if 200 <= status < 300 and body.get("code") == 200:
+                            counts["2xx"] += 1
+                            successful_timings.append(timings[-1])
+                            successful_operation_timings[operation_name].append(timings[-1])
+                        elif status == 429 and body.get("code") == 42901:
+                            counts["429"] += 1
+                        elif status >= 500:
+                            counts["5xx"] += 1
+                        else:
+                            counts["other"] += 1
+                    except (TimeoutError, socket.timeout, URLError):
+                        timings.append((time.perf_counter() - started) * 1000)
+                        operation_timings[operation_name].append(timings[-1])
+                        counts["timeout"] += 1
                     operation += 1
-                return timings, errors
+                return timings, successful_timings, counts, operation_timings, successful_operation_timings
 
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 results = list(executor.map(worker, range(workers)))
             duration = time.perf_counter() - start
             after = self.process_metrics()
-            timings = sorted(value for values, _ in results for value in values)
-            errors = sum(value for _, value in results)
+            timings = sorted(value for values, _, _, _, _ in results for value in values)
+            successful_timings = sorted(value for _, values, _, _, _ in results for value in values)
+            counts = {key: sum(value[key] for _, _, value, _, _ in results)
+                      for key in ("2xx", "429", "5xx", "timeout", "other")}
+            operation_timings = {
+                name: sorted(value for _, _, _, per_worker, _ in results for value in per_worker[name])
+                for name in ("me", "refresh", "login")
+            }
+            successful_operation_timings = {
+                name: sorted(value for _, _, _, _, per_worker in results for value in per_worker[name])
+                for name in ("me", "refresh", "login")
+            }
             require(bool(timings), "Pressure stage did not send requests")
             info = dict(line.split(":", 1) for line in redis_command(self.redis_port, "INFO", "memory").splitlines()
                         if ":" in line and not line.startswith("#"))
-            metric = {"workers": workers, "requests": len(timings), "duration_seconds": round(duration, 2),
-                      "requests_per_second": round(len(timings) / duration, 2), "unexpected_errors": errors,
+            login_metrics = self.check("login protection metrics", "GET", "/api/sys-user/auth/login-metrics",
+                                       token=self.sys_token)
+            metric = {"pressure_mode": self.pressure_mode, "mode": mode, "workers": workers,
+                      "requests": len(timings),
+                      "duration_seconds": round(duration, 2),
+                      "requests_per_second": round(len(timings) / duration, 2),
+                      "status_counts": counts,
+                      "unexpected_errors": counts["5xx"] + counts["timeout"] + counts["other"],
                       "p95_ms": round(timings[math.ceil(len(timings) * .95) - 1], 2),
                       "p99_ms": round(timings[math.ceil(len(timings) * .99) - 1], 2),
+                      "successful_p95_ms": round(successful_timings[math.ceil(len(successful_timings) * .95) - 1], 2)
+                      if successful_timings else None,
+                      "successful_p99_ms": round(successful_timings[math.ceil(len(successful_timings) * .99) - 1], 2)
+                      if successful_timings else None,
                       "java_cpu_seconds": round(after["CPU"] - before["CPU"], 2),
                       "java_working_set_bytes": after["WorkingSet64"],
+                      "jvm_thread_count": after["Threads"],
+                      "login_protection_metrics": login_metrics,
+                      "operation_p95_ms": {
+                          name: round(values[math.ceil(len(values) * .95) - 1], 2)
+                          for name, values in operation_timings.items() if values
+                      },
+                      "operation_p99_ms": {
+                          name: round(values[math.ceil(len(values) * .99) - 1], 2)
+                          for name, values in operation_timings.items() if values
+                      },
+                      "successful_operation_p95_ms": {
+                          name: round(values[math.ceil(len(values) * .95) - 1], 2)
+                          for name, values in successful_operation_timings.items() if values
+                      },
+                      "successful_operation_p99_ms": {
+                          name: round(values[math.ceil(len(values) * .99) - 1], 2)
+                          for name, values in successful_operation_timings.items() if values
+                      },
                       "redis_used_memory_bytes": int(info["used_memory"]),
                       "mysql_threads_connected": int(self.sql("SHOW STATUS LIKE 'Threads_connected'").split()[-1])}
             self.report["pressure"].append(metric)
-            print("Pressure baseline:", json.dumps(metric), flush=True)
-            require(errors == 0, "Pressure stage had unexpected responses")
-            self.check("post-load recovery", "GET", "/api/user/me", token=self.user_pair["accessToken"])
+            print("Pressure " + str(getattr(self, "pressure_mode", "unknown")) + ":", json.dumps(metric), flush=True)
+            require(metric["unexpected_errors"] == 0, "Pressure stage had unexpected responses")
+            self.check("refresh remains valid after controlled login limit", "POST", "/api/user/auth/refresh",
+            {"refreshToken": refresh_token})
+            self.check("post-load recovery", "GET", "/api/user/me", token=access_token)
+
+        for mode in ("mixed", "password"):
+            for workers in (1, 8, 24, 48):
+                run_stage(workers, mode)
 
     def fault_checks(self):
         token = self.user_pair["accessToken"]
@@ -757,6 +876,12 @@ class BackendGate:
         self.start_app()
         self.smoke()
         self.concurrent_http()
+        self.login_rate_limit_checks()
+        self.stop_app()
+        self.start_app("control")
+        self.pressure()
+        self.stop_app()
+        self.start_app("protected")
         self.pressure()
         self.fault_checks()
         self.stop_app()

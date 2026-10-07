@@ -5,6 +5,7 @@ import com.web.project.admin.mapper.SysUserMapper;
 import com.web.project.auth.dto.RefreshTokenDTO;
 import com.web.project.auth.dto.SysUserLoginDTO;
 import com.web.project.auth.model.AccountType;
+import com.web.project.auth.protection.PasswordVerificationGuard;
 import com.web.project.auth.service.AuthSessionService;
 import com.web.project.auth.service.SysUserAuthService;
 import com.web.project.auth.vo.AccessTokenVO;
@@ -29,6 +30,7 @@ public class SysUserAuthServiceImpl implements SysUserAuthService {
     private final SysUserMapper sysUserMapper;
     private final PasswordEncoder passwordEncoder;
     private final AuthSessionService authSessionService;
+    private final PasswordVerificationGuard passwordVerificationGuard;
 
     /**
      * 系统用户登录。
@@ -41,7 +43,8 @@ public class SysUserAuthServiceImpl implements SysUserAuthService {
         SysUser sysUser = sysUserMapper.selectByUsername(loginDTO.username());
 
         // 账号不存在和密码错误使用同一提示，避免暴露账号是否存在。
-        if (sysUser == null || !passwordEncoder.matches(loginDTO.password(), sysUser.getPassword())) {
+        if (sysUser == null || !passwordVerificationGuard.matches(
+                passwordEncoder, loginDTO.password(), sysUser.getPassword())) {
             throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
         }
 
