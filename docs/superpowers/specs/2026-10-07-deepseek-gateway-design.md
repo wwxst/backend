@@ -10,7 +10,8 @@
 - 支持非流式 JSON 和 SSE 流式响应。
 - 使用 DeepSeek 返回的 `usage` 统计输入、输出和总 token。
 - 维护普通用户余额、预授权、消费流水、用量记录和余额不足控制。
-- 提供管理员配置 DeepSeek、维护模型价格、给用户充值/调整余额和查询账务的接口。
+- 以 DeepSeek 官方输入/输出价格作为成本基础，通过整数计费倍率计算用户价格。
+- 提供管理员配置 DeepSeek、维护官方价格和计费倍率、给用户充值/调整余额以及查询账务的接口。
 - 保留现有用户、系统用户和 JWT 鉴权边界，不将 DeepSeek API Key 暴露给客户端。
 
 明确不在本期实现：
@@ -73,19 +74,21 @@ Authorization: Bearer <user-access-token>
 | 方法 | 路径 | 作用 |
 | --- | --- | --- |
 | GET/PUT | `/api/sys-user/gateway/deepseek` | 查询或更新 DeepSeek 开关、Base URL 和密钥配置 |
-| GET/PUT | `/api/sys-user/gateway/models/{model}` | 查询或更新模型启用状态、输入价格、输出价格和单请求上限 |
+| GET/PUT | `/api/sys-user/gateway/models/{model}` | 查询或更新模型启用状态和单请求上限 |
+| GET/PUT | `/api/sys-user/gateway/models/{model}/official-price` | 单独查询或维护 DeepSeek 官方输入/输出价格 |
+| GET/PUT | `/api/sys-user/gateway/models/{model}/billing-multiplier` | 单独查询或调整用户计费倍率 |
 | GET | `/api/sys-user/billing/users/{userId}/balance` | 查询指定用户余额 |
 | POST | `/api/sys-user/billing/users/{userId}/adjustments` | 充值或调整指定用户余额 |
 | GET | `/api/sys-user/billing/transactions` | 按用户、类型和时间分页查询消费流水 |
 | GET | `/api/sys-user/billing/usage` | 按用户、模型和时间分页查询用量明细 |
 
-管理员查询只返回密钥是否已配置和脱敏标识，不返回 API Key 明文。价格输入使用 CNY/百万 token，服务端转换为微元保存。
+管理员查询只返回密钥是否已配置和脱敏标识，不返回 API Key 明文。官方价格输入使用 CNY/百万 token，服务端转换为微元保存；倍率使用整数百万分比保存，例如 `1.25` 保存为 `1250000`，`1.0` 保存为 `1000000`。管理员日常调整的是倍率，官方价格通过独立接口维护；历史账单不依赖当前配置，而依赖请求时保存的价格快照。
 
 ## 4. 业务组件
 
 ### 4.1 Gateway 配置
 
-`DeepSeekGatewayConfigService` 负责读取并更新单一 DeepSeek 配置，验证 Base URL 为 HTTPS origin（本地开发可由配置允许 HTTP）、密钥非空、模型上限和价格非负。`DeepSeekClient` 负责向固定 Base URL 发起请求，设置服务端保存的 Authorization，并暴露非流式响应和流式输入流，不参与账务逻辑。
+`DeepSeekGatewayConfigService` 负责读取并更新单一 DeepSeek 配置，验证 Base URL 为 HTTPS origin（本地开发可由配置允许 HTTP）、密钥非空、模型上限和官方价格非负。`DeepSeekClient` 负责向固定 Base URL 发起请求，设置服务端保存的 Authorization，并暴露非流式响应和流式输入流，不参与账务逻辑。
 
 首期不抽象供应商池接口。DeepSeek 配置和客户端属于同一个真实调用方，后续增加供应商时再按实际边界拆分。
 
@@ -114,12 +117,21 @@ WHERE user_id = #{userId}
 3. 根据原始请求字节数和输出上限计算保守的预授权 token 数和金额。
 4. 以唯一 `request_id` 创建请求记录并冻结余额。
 5. 调用 DeepSeek；非流式直接解析 JSON，流式逐段转发 SSE。
-6. 从响应 `usage` 读取输入/输出 token，按请求开始时锁定的价格计算实际费用。
+6. 从响应 `usage` 读取输入/输出 token，按请求开始时锁定的官方价格和计费倍率计算官方成本与用户实际费用。
 7. 在同一账务事务中写入用量记录、消费流水和请求最终状态，释放预授权差额。
 
-预授权输入 token 使用请求 UTF-8 字节数作为保守上界，输出 token 使用请求中的 `max_tokens`，未提供时使用该模型的服务端上限。网关限制请求体大小和输出上限，因此上游实际费用不应超过预授权。实际账单始终以 DeepSeek 的 `usage` 为准；若上游流式响应没有返回 usage，则请求记录标记为 `USAGE_MISSING`，按预授权金额结算并记录异常原因，避免少扣费。
+预授权输入 token 使用请求 UTF-8 字节数作为保守上界，输出 token 使用请求中的 `max_tokens`，未提供时使用该模型的服务端上限。预授权金额使用用户计费价格计算；官方成本只在收到 usage 后计算。网关限制请求体大小和输出上限，因此上游实际用户费用不应超过预授权。实际账单始终以 DeepSeek 的 `usage` 为准；若上游流式响应没有返回 usage，则请求记录标记为 `USAGE_MISSING`，按预授权金额结算并记录异常原因，避免少扣费。
 
-价格在预授权记录中保存快照，管理员修改价格不会改变已发起请求的结算价格。
+价格计算全部使用整数微元，不使用 `float` 或 `double`。设官方输入/输出单价为 `officialPriceMicro`，倍率为 `multiplierPpm`，固定倍率精度为 `1,000,000`：
+
+```text
+userPriceMicro = ceil(officialPriceMicro * multiplierPpm / 1,000,000)
+officialCostMicro = ceil(tokens * officialPriceMicro / 1,000,000)
+userChargeMicro = ceil(tokens * userPriceMicro / 1,000,000)
+marginMicro = userChargeMicro - officialCostMicro
+```
+
+输入和输出分别计算后再相加；所有 `ceil` 使用整数除法实现，避免中间结果丢失精度。Java 实现使用 `BigInteger` 或经过溢出检查的整数运算，不使用 `float`、`double` 或未经检查的乘法截断。倍率必须为正整数，默认 `1,000,000` 表示原价，低于或高于该值分别表示折扣或加价。每次请求保存官方输入/输出价格快照、倍率快照、用户输入/输出计费价格快照、官方输入/输出成本、用户输入/输出扣费和差额。后续修改官方价格或倍率不得影响历史账单。
 
 ## 5. 数据模型
 
@@ -144,16 +156,16 @@ WHERE user_id = #{userId}
 
 ### 5.3 `ai_gateway_model`
 
-按模型保存启用状态、输入价格微元/百万 token、输出价格微元/百万 token、最大输入字节数和最大输出 token。模型名唯一；删除模型改为停用，避免历史用量失去名称。
+按模型保存启用状态、官方输入价格微元/百万 token、官方输出价格微元/百万 token、计费倍率百万分比、最大输入字节数和最大输出 token。模型名唯一；删除模型改为停用，避免历史用量失去名称。官方价格字段与倍率字段分开维护，管理员调整倍率不改写官方价格。
 
 ### 5.4 `ai_gateway_request`
 
 记录一次中转请求的幂等和预授权状态：
 
 - `request_id` 唯一；同一用户的 `Idempotency-Key`（若提供）建立唯一约束并映射到该请求；
-- `user_id`、模型和价格快照；
+- `user_id`、模型、官方价格快照、倍率快照和用户计费价格快照；
 - 预授权输入/输出 token 上限与金额；
-- 实际 token、实际金额和上游 request ID；
+- 实际 token、官方成本、用户扣费、差额和上游 request ID；
 - `RESERVED`、`SETTLED`、`RELEASED`、`UPSTREAM_FAILED`、`USAGE_MISSING` 状态；
 - 创建和完成时间。
 
@@ -161,11 +173,11 @@ WHERE user_id = #{userId}
 
 ### 5.5 `ai_usage_record`
 
-一请求一条用量记录，保存输入、输出、总 token，输入/输出价格快照，输入/输出/总成本，模型、用户、状态和时间。用量统计只读取该表，不从流水描述文本反推 token。
+一请求一条用量记录，保存输入、输出、总 token，官方输入/输出价格快照，倍率快照，用户输入/输出计费价格快照，官方输入/输出/总成本，用户输入/输出/总扣费和官方成本与用户扣费差额，模型、用户、状态和时间。用量统计只读取该表，不从流水描述文本反推 token；官方成本、用户消费和差额都使用请求快照计算，不回读当前模型配置。用户和管理员的明细及汇总响应统一提供 `officialCost`、`userCharge`、`margin` 三组金额，以及对应 token 数；管理员额外可按用户和模型筛选。
 
 ### 5.6 `ai_billing_transaction`
 
-不可变账务流水，保存用户、请求 ID（消费/退款时）、类型、正负金额、变更后可用余额、操作人、备注和时间。类型至少包括 `TOP_UP`、`CONSUMPTION`、`REFUND`、`ADJUSTMENT`。消费和退款使用请求 ID 唯一约束，充值/调整使用管理操作 ID 防止重复提交。
+不可变账务流水，保存用户、请求 ID（消费/退款时）、类型、正负金额、变更后可用余额、操作人、备注和时间。类型至少包括 `TOP_UP`、`CONSUMPTION`、`REFUND`、`ADJUSTMENT`。消费和退款使用请求 ID 唯一约束，充值/调整使用管理操作 ID 防止重复提交。消费流水查询按请求 ID 关联对应的 `ai_usage_record` 快照，同时返回 `officialCost`、`userCharge`、`margin`；充值、调整等非模型消费流水的三项金额为空，不从当前模型价格重新计算。
 
 ## 6. 响应、错误和安全
 
@@ -175,7 +187,8 @@ WHERE user_id = #{userId}
 - 余额不足、网关未启用、模型未启用、请求超过上限、上游不可用、usage 缺失分别使用独立业务错误码，前端不依赖中文文案判断状态。
 - 日志只记录用户 ID、模型、请求 ID、token 数、金额和状态；不得记录 Authorization、API Key、完整 messages、prompt 或上游响应正文。
 - 用户只能读取自己的钱包、流水和用量；管理员可以按用户查询，但不能读取供应商密钥明文。
-- 价格、余额和流水写入必须检查影响行数；任何账务事务失败都不能返回成功。
+- 官方价格、倍率、余额和流水写入必须检查影响行数；任何账务事务失败都不能返回成功。
+- 用户和管理员的用量统计同时返回官方成本、用户消费和差额；差额定义为用户消费减官方成本，可因倍率低于 1 而为负数。
 
 ## 7. 事务与故障处理
 
@@ -189,7 +202,8 @@ DeepSeek 返回错误或连接从未建立时，状态为 `UPSTREAM_FAILED`，�
 
 ### 单元测试
 
-- 输入/输出 token 价格换算到微元时的舍入和边界。
+- 官方价格、倍率和用户价格换算到微元时的整数舍入和边界。
+- 官方成本、用户消费和差额的独立计算及历史价格快照。
 - 预授权金额计算、余额不足和请求上限校验。
 - usage 结算、差额退款和上游失败释放。
 - 重复 request ID 不重复扣费。
@@ -199,7 +213,7 @@ DeepSeek 返回错误或连接从未建立时，状态为 `UPSTREAM_FAILED`，�
 
 - 钱包条件更新在余额充足/不足时的受影响行数。
 - 同一用户并发预授权时余额不变为负数，成功数量不超过余额可承担金额。
-- 消费、退款、充值流水与最终余额一致。
+- 消费、退款、充值流水与最终余额一致，且消费流水与用量记录中的用户扣费一致。
 - 唯一约束防止同一请求重复消费。
 
 ### HTTP 与启动冒烟
@@ -208,6 +222,7 @@ DeepSeek 返回错误或连接从未建立时，状态为 `UPSTREAM_FAILED`，�
 - 验证普通用户 Token 可访问，系统用户 Token 和匿名请求被拒绝。
 - 验证余额不足时 DeepSeek 不收到请求。
 - 验证上游超时和 5xx 后余额恢复。
+- 验证修改官方价格或倍率后，历史请求的官方成本、用户消费和差额不变。
 - 验证密钥、Authorization、prompt 和响应正文不进入应用日志。
 
 完成实现后按 `backend/AGENTS.md` 和 `docs/quality-gates.md` 执行规范检查、代码 Review、`mvnw.cmd verify`、数据库集成测试和独立环境 HTTP 冒烟，并同步 `docs/api.md`。
