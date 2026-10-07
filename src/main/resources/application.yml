@@ -34,6 +34,10 @@ mybatis:
     map-underscore-to-camel-case: true
 
 app:
+  id-generator:
+    # 多实例部署时必须为每个实例分配唯一的 datacenter-id 和 worker-id 组合。
+    datacenter-id: ${ID_GENERATOR_DATACENTER_ID:0}
+    worker-id: ${ID_GENERATOR_WORKER_ID:0}
   auth:
     login-protection:
       # BCrypt 同时校验上限；超出后立即返回429，不排队等待。
