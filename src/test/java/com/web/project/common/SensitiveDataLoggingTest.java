@@ -39,7 +39,7 @@ class SensitiveDataLoggingTest {
         String secret = "private-signing-key";
         TokenPairVO pair = new TokenPairVO(access, refresh);
         UserInfoVO profile = new UserInfoVO(1L, "123456", phone, email, null, null, 1, null);
-        UserAccountListVO user = new UserAccountListVO(1L, "123456", phone, email, null, 1, null, null);
+        UserAccountListVO user = new UserAccountListVO(1L, "123456", phone, email, null, null, 1, null, null);
 
         List<Object> objects = List.of(
                 new SysUserLoginDTO("admin", password),

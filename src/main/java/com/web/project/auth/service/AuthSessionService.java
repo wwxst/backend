@@ -44,20 +44,23 @@ public class AuthSessionService {
      *
      * @param accountType     账号类型
      * @param accountId       账号主键
-     * @param passwordVersion 普通用户密码版本；系统用户传 null
+     * @param credentialVersion 普通用户密码版本或系统用户认证版本
      * @return Access Token 与 Refresh Token
      */
     public TokenPairVO createSession(
             AccountType accountType,
             Long accountId,
-            Long passwordVersion
+            Long credentialVersion
     ) {
         String sessionId = UUID.randomUUID().toString();
 
         sessionStore.save(
                 accountType,
                 sessionId,
-                new AuthSessionData(accountId, passwordVersion),
+                new AuthSessionData(
+                        accountId,
+                        accountType == AccountType.USER ? credentialVersion : null,
+                        accountType == AccountType.SYS_USER ? credentialVersion : null),
                 jwtProperties.refreshTokenExpiration()
         );
 
@@ -65,14 +68,14 @@ public class AuthSessionService {
                 accountType,
                 accountId,
                 sessionId,
-                passwordVersion
+                credentialVersion
         );
 
         String refreshToken = jwtTokenService.createRefreshToken(
                 accountType,
                 accountId,
                 sessionId,
-                passwordVersion
+                credentialVersion
         );
 
         return new TokenPairVO(accessToken, refreshToken);
@@ -128,7 +131,7 @@ public class AuthSessionService {
             throw new BusinessException(ErrorCode.REFRESH_TOKEN_INVALID);
         }
 
-        Long passwordVersion = null;
+        Long credentialVersion = null;
 
         if (expectedAccountType == AccountType.SYS_USER) {
             SysUser sysUser = sysUserMapper.selectById(accountId);
@@ -136,6 +139,13 @@ public class AuthSessionService {
                     || !Integer.valueOf(1).equals(sysUser.getStatus())) {
                 throw new BusinessException(ErrorCode.REFRESH_TOKEN_INVALID);
             }
+            Long tokenVersion = readVersion(jwt, "authVersion");
+            if (session.authVersion() == null
+                    || !session.authVersion().equals(sysUser.getAuthVersion())
+                    || !session.authVersion().equals(tokenVersion)) {
+                throw new BusinessException(ErrorCode.REFRESH_TOKEN_INVALID);
+            }
+            credentialVersion = sysUser.getAuthVersion();
         } else {
             UserAccount userAccount = userAccountMapper.selectById(accountId);
             if (userAccount == null
@@ -156,14 +166,14 @@ public class AuthSessionService {
                 throw new BusinessException(ErrorCode.REFRESH_TOKEN_INVALID);
             }
 
-            passwordVersion = currentVersion;
+            credentialVersion = currentVersion;
         }
 
         String accessToken = jwtTokenService.createAccessToken(
                 expectedAccountType,
                 accountId,
                 sessionId,
-                passwordVersion
+                credentialVersion
         );
 
         return new AccessTokenVO(accessToken);
@@ -199,7 +209,11 @@ public class AuthSessionService {
      * 读取普通用户 Token 中的 passwordVersion claim。
      */
     private Long readPasswordVersion(Jwt jwt) {
-        Object raw = jwt.getClaim("passwordVersion");
+        return readVersion(jwt, "passwordVersion");
+    }
+
+    private Long readVersion(Jwt jwt, String claimName) {
+        Object raw = jwt.getClaim(claimName);
 
         if (raw == null) {
             return null;

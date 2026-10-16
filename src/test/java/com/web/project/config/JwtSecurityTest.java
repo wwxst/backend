@@ -1,6 +1,8 @@
 package com.web.project.config;
 
 import com.web.project.admin.service.SysUserService;
+import com.web.project.admin.entity.SysUser;
+import com.web.project.admin.mapper.SysUserMapper;
 import com.web.project.auth.model.AccountType;
 import com.web.project.auth.service.JwtTokenService;
 import com.web.project.common.result.PageResult;
@@ -19,6 +21,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Duration;
@@ -46,8 +49,18 @@ class JwtSecurityTest {
     @Autowired RefreshTokenDecoder refreshTokenDecoder;
     @Autowired JwtProperties properties;
     @MockitoBean SysUserService admins;
+    @MockitoBean SysUserMapper sysUserMapper;
     @MockitoBean UserProfileService profiles;
     @MockitoBean UserAccountService users;
+
+    @BeforeEach
+    void stubActiveAdmin() {
+        SysUser admin = new SysUser();
+        admin.setId(1L);
+        admin.setStatus(1);
+        admin.setAuthVersion(0L);
+        when(sysUserMapper.selectById(1L)).thenReturn(admin);
+    }
 
     @Test
     void storageManagementRequiresAdminAndOnlyFileReadsArePublic() throws Exception {
@@ -62,17 +75,18 @@ class JwtSecurityTest {
 
     @Test
     void adminCanEditOrdinaryUserButUserAnonymousAndRefreshCannot() throws Exception {
-        String path = "/api/sys-user/users/5";
+        long userId = 9007199254740993L;
+        String path = "/api/sys-user/users/" + userId;
         String payload = "{\"nickname\":\"昵称\",\"phone\":null,\"email\":\"new@example.com\"}";
-        when(users.updateUser(eq(5L), any())).thenReturn(new UserAccountListVO(
-                5L, "123456", null, "new@example.com", "昵称", 0, LocalDateTime.now(), LocalDateTime.now()));
+        when(users.updateUser(eq(userId), any())).thenReturn(new UserAccountListVO(
+                userId, "123456", null, "new@example.com", "昵称", null, 0, LocalDateTime.now(), LocalDateTime.now()));
         mvc.perform(put(path).contentType("application/json").content(payload)
                         .header("Authorization", "Bearer " + adminAccessToken()))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.data.id").value(5))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.id").value(Long.toString(userId)))
                 .andExpect(jsonPath("$.data.status").value(0))
                 .andExpect(jsonPath("$.data.password").doesNotExist())
                 .andExpect(jsonPath("$.data.passwordVersion").doesNotExist());
-        verify(users).updateUser(5L, new UpdateUserAccountDTO("昵称", null, "new@example.com"));
+        verify(users).updateUser(userId, new UpdateUserAccountDTO("昵称", null, "new@example.com"));
         clearInvocations(users);
         mvc.perform(put(path).contentType("application/json").content(payload))
                 .andExpect(status().isUnauthorized());
@@ -102,7 +116,27 @@ class JwtSecurityTest {
     }
 
     private String adminAccessToken() {
-        return tokens.createAccessToken(AccountType.SYS_USER, 1L, "session-admin", null);
+        return tokens.createAccessToken(AccountType.SYS_USER, 1L, "session-admin", 0L);
+    }
+
+    @Test
+    void disabledAdminAccessTokenIsRejectedImmediately() throws Exception {
+        sysUserMapper.selectById(1L).setStatus(0);
+
+        mvc.perform(get(ADMIN_PATH).header("Authorization", "Bearer " + adminAccessToken()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(40102));
+        verifyNoInteractions(admins);
+    }
+
+    @Test
+    void resetPasswordVersionRejectsOldAccessTokenImmediately() throws Exception {
+        sysUserMapper.selectById(1L).setAuthVersion(1L);
+
+        mvc.perform(get(ADMIN_PATH).header("Authorization", "Bearer " + adminAccessToken()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(40102));
+        verifyNoInteractions(admins);
     }
 
     @Test

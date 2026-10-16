@@ -9,6 +9,7 @@
 - 登录、注册、Refresh、发送验证码和重置密码接口，以及 GET/HEAD `/files/{id}` 公开访问；其他接口需要 `Authorization: Bearer <accessToken>`。
 - 系统用户接口使用 `SCOPE_admin`，普通用户接口使用 `SCOPE_user`。
 - 资源接口只接受 Access Token，Refresh 接口只接受 Refresh Token。
+- 普通用户 `id` 由后端生成 Snowflake ID，个人资料、用户列表及编辑响应统一返回十进制字符串（如 `"9007199254740993"`）。客户端保留字符串并原样传入路径参数，不能转换为 JavaScript `number`；系统用户及存储 ID 仍使用原有数字契约。
 
 ## 统一响应
 
@@ -64,12 +65,16 @@
 | `scope` | `admin` 或 `user` |
 | `tokenType` | `access` 或 `refresh` |
 
-普通用户 Token 额外包含 `passwordVersion`；系统用户不包含该 claim。
+普通用户 Token 额外包含 `passwordVersion`；系统用户 Token 额外包含 `authVersion`。系统用户的 `auth_version` 在重置密码或更改状态时递增，Access Token 每次访问管理接口都与数据库中的当前状态和版本核对；状态禁用或版本过期返回统一 401。Refresh 同时校验 Token、Redis Session 和数据库版本。密码重置、停用以及之后重新启用都会使所有旧设备的 Access/Refresh Token 失效，重新启用后必须重新登录。
 
 - 每次登录或注册生成新的 `sessionId`，会话写入 `auth:session:{accountType}:{sessionId}`，TTL 为 Refresh Token 有效期。
 - Refresh Token 在同一个 Session 生命周期内保持不变，不做轮换。
 - 退出登录删除当前 Session；退出后 Refresh Token 不能继续续期，已签发的 Access Token 在剩余有效期内仍可使用。
 - 修改或重置密码会递增 `password_version`，旧 Refresh Token 因版本不一致无法续期。
+
+### 超级管理员
+
+全新数据库初始化 SQL 将第一条系统用户记录写入空的自增表，因此初始管理员 ID 为 `1`。ID `1` 固定为超级管理员，不能停用或删除；后端以统一 `40000` 业务错误响应并提示原因，管理端同时禁用对应操作。不会通过重设已有数据库的自增值来变更账号 ID。
 
 ## 系统用户
 
@@ -235,15 +240,17 @@ GET/HEAD `/files/{id}` 无需 Token。本地头像返回图片原始字节、真
 | GET | `/oss/credentials` | 无 | `{configured: boolean}`，不回传 AccessKeyId 或 Secret |
 | PUT | `/oss/credentials` | `{accessKeyId,accessKeySecret}` | `{configured: true}` |
 | GET | `/spaces` | `page`、`pageSize` | `PageResult<StorageSpaceVO>` |
-| POST | `/spaces` | `{bucketName,regionId,accessPermission}` | `StorageSpaceVO` |
+| POST | `/spaces` | `{bucketName,regionId,accessPermission[,accessKeyId,accessKeySecret]}` | `StorageSpaceVO` |
 | POST | `/spaces/sync` | 无 | `{syncedCount}`，本次新增及地域更新的绑定数 |
 | PUT | `/spaces/{id}/default` | 无 | `StorageSpaceVO` |
 | PATCH | `/spaces/{id}/domain` | `{accessDomain}` | `StorageSpaceVO` |
 | DELETE | `/spaces/{id}` | 无 | null |
 
+当请求同时携带 `accessKeyId` 和 `accessKeySecret` 时，服务端先用候选凭据验证账户、新 Bucket 及所有已绑定空间的地域和访问权限，再在同一事务中提交凭据与绑定；验证或绑定失败不会保存候选凭据。未携带凭据时沿用已保存凭据。
+
 `StorageSpaceVO` 字段为 `id`、`bucketName`、`regionId`、`accessDomain`、`isDefault`、`createdAt`、`updatedAt`。默认页码1、每页15条，页码至少1，每页1～100；显式空值或越界值返回400。地域输入接受 `cn-hangzhou` 或 `oss-cn-hangzhou`，保存及返回统一为 `oss-cn-hangzhou`，只支持页面已列出的30个标准地域。
 
-凭据两个字段均必填、最多128个可见 ASCII 字符，保存前验证账号能查询 Bucket；启用 OSS 时还验证新凭据能访问默认空间。Secret 用部署密钥加密后保存，任何查询均不返回凭据明文。部署密钥缺失或非法时，凭据保存返回500及明确的中文配置说明，本地功能仍可使用。
+凭据两个字段均必填、最多128个可见 ASCII 字符，保存前验证账号能查询 Bucket，并验证新凭据可访问全部已绑定空间；启用 OSS 时默认空间也包含在验证范围内。若验证期间绑定空间或地域发生变化，本次更新要求刷新后重试。Secret 用部署密钥加密后保存，任何查询均不返回凭据明文。部署密钥缺失或非法时，凭据保存返回500及明确的中文配置说明，本地功能仍可使用。
 
 绑定只接入现有 Bucket，必填 accessPermission（public-read 或 public-read-write），校验真实地域及 ACL 与所选权限一致，不创建或删除云端 Bucket，也不修改云端 ACL。设置默认空间和切换为 OSS 时重新校验凭据、默认空间、地域及公共读或公共读写权限；同一时间只有一个默认空间。未配置凭据或未选择空间不能切换 OSS。
 
@@ -279,7 +286,7 @@ GET /api/sys-user/users?page=1&pageSize=10&keyword=138&status=1
 Authorization: Bearer <accessToken>
 ```
 
-由系统用户访问，查询参数为 `page`、`pageSize`、`keyword`、`status`、`createdAtOrder`，分页结构与系统用户列表相同；`keyword` 最多 50 个字符，匹配用户号码、手机号、邮箱或昵称；`createdAtOrder` 支持 `asc` 创建时间升序和 `desc` 降序，不传时按创建时间倒序。同一创建时间按 ID 同向排序。`records` 对应 `UserAccountListVO`，字段为 `id`、`userNo`、`phone`、`email`、`nickname`、`status`、`createdAt`、`updatedAt`，不会返回密码和密码版本字段。
+由系统用户访问，查询参数为 `page`、`pageSize`、`keyword`、`status`、`createdAtOrder`，分页结构与系统用户列表相同；`keyword` 最多 50 个字符，匹配用户号码、手机号、邮箱或昵称；`createdAtOrder` 支持 `asc` 创建时间升序和 `desc` 降序，不传时按创建时间倒序。同一创建时间按 ID 同向排序。`records` 对应 `UserAccountListVO`，字段为 `id`、`userNo`、`phone`、`email`、`nickname`、`avatar`、`status`、`createdAt`、`updatedAt`，不会返回密码和密码版本字段。
 
 ### 管理端编辑普通用户
 
@@ -379,6 +386,8 @@ Content-Type: application/json
 ## 普通用户
 
 普通用户使用手机号或邮箱注册、登录，不再使用用户名。联系方式在写入和查询前统一规范化：手机号去除首尾空格并校验 11 位中国大陆手机号；邮箱去除首尾空格并转为小写。
+
+新注册账号的内部主键使用 Snowflake ID；`userNo` 保持独立生成的对外展示号码。多实例部署时必须为 `app.id-generator.datacenter-id` 和 `worker-id` 分配唯一组合，两个配置均取 `0`～`31`，单实例本地开发默认均为 `0`。
 
 ### 发送验证码
 
@@ -527,7 +536,7 @@ Authorization: Bearer <accessToken>
 
 ```json
 {
-  "id": 1,
+  "id": "9007199254740993",
   "userNo": "123456",
   "phone": "13800138000",
   "email": null,

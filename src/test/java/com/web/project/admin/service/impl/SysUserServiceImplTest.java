@@ -1,5 +1,8 @@
 package com.web.project.admin.service.impl;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.web.project.admin.dto.CreateSysUserDTO;
 import com.web.project.admin.dto.ResetSysUserPasswordDTO;
 import com.web.project.admin.dto.UpdateSysUserDTO;
@@ -17,12 +20,16 @@ import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 import org.springframework.mock.web.MockMultipartFile;
 import org.junit.jupiter.api.BeforeEach;
+import org.slf4j.LoggerFactory;
 
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.doThrow;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -55,11 +62,11 @@ class SysUserServiceImplTest {
 
     @Test
     void updateStatusDelegatesAndAcceptsOneUpdatedRow() {
-        when(mapper.updateStatus(1L, 0)).thenReturn(1);
+        when(mapper.updateStatus(8L, 0)).thenReturn(1);
 
-        service.updateStatus(1L, 0);
+        service.updateStatus(8L, 0);
 
-        verify(mapper).updateStatus(1L, 0);
+        verify(mapper).updateStatus(8L, 0);
     }
 
     @Test
@@ -72,6 +79,18 @@ class SysUserServiceImplTest {
         );
 
         assertEquals(ErrorCode.BAD_REQUEST, exception.getErrorCode());
+    }
+
+    @Test
+    void updateStatusRejectsDisablingSuperAdmin() {
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.updateStatus(1L, 0)
+        );
+
+        assertEquals(ErrorCode.BAD_REQUEST, exception.getErrorCode());
+        assertEquals("超级管理员不允许停用", exception.getMessage());
+        verifyNoInteractions(mapper);
     }
 
     @Test
@@ -152,6 +171,15 @@ class SysUserServiceImplTest {
     }
 
     @Test
+    void deleteRejectsSuperAdmin() {
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.delete(1L));
+
+        assertEquals(ErrorCode.BAD_REQUEST, exception.getErrorCode());
+        assertEquals("超级管理员不允许删除", exception.getMessage());
+        verifyNoInteractions(mapper, storage);
+    }
+
+    @Test
     void avatarReplacementCommitsReferenceBeforeDeletingOldFile() {
         SysUser current = user(8L, "operator", "用户", 1);
         current.setAvatarFileId(11L);
@@ -207,6 +235,45 @@ class SysUserServiceImplTest {
         assertEquals(original, actual);
         assertEquals(cleanup, actual.getSuppressed()[0]);
         verify(storage).delete(12L);
+    }
+
+    @Test
+    void avatarUpdateSucceedsWhenOldFileCleanupFailsAfterCommit() {
+        SysUser current = user(8L, "operator", "用户", 1);
+        current.setAvatarFileId(11L);
+        SysUser updated = user(8L, "operator", "用户", 1);
+        updated.setAvatarFileId(12L);
+        when(mapper.selectById(8L)).thenReturn(current, updated);
+        when(mapper.selectByIdForUpdate(8L)).thenReturn(current);
+        StorageFile uploaded = new StorageFile();
+        uploaded.setId(12L);
+        var file = new MockMultipartFile("file", "avatar.png", "image/png", new byte[]{1});
+        when(storage.storeAvatar(file)).thenReturn(uploaded);
+        when(files.selectByIdForUpdate(12L)).thenReturn(uploaded);
+        when(mapper.updateAvatar(8L, 12L)).thenReturn(1);
+        doThrow(new IllegalStateException("sensitive-cleanup-value",
+                new IllegalArgumentException("sensitive-cause-value"))).when(storage).delete(11L);
+        Logger logger = (Logger) LoggerFactory.getLogger(SysUserServiceImpl.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            var result = org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> service.updateAvatar(8L, file));
+
+            assertEquals("/files/12", result.avatar());
+            verify(storage).delete(11L);
+            assertEquals(1, appender.list.size());
+            ILoggingEvent event = appender.list.getFirst();
+            assertNull(event.getThrowableProxy(), "Raw exception messages must not reach the log formatter");
+            assertTrue(event.getFormattedMessage().contains("IllegalStateException"));
+            assertTrue(event.getFormattedMessage().contains("IllegalArgumentException"));
+            assertTrue(event.getFormattedMessage().contains("SysUserServiceImplTest"));
+            assertFalse(event.getFormattedMessage().contains("sensitive-cleanup-value"));
+            assertFalse(event.getFormattedMessage().contains("sensitive-cause-value"));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     private SysUser user(Long id, String username, String nickname, Integer status) {

@@ -63,7 +63,7 @@ class AuthSessionStoreTest {
         sessionStore.save(
                 AccountType.USER,
                 sessionId,
-                new AuthSessionData(42L, 3L),
+                new AuthSessionData(42L, 3L, null),
                 Duration.ofMinutes(5)
         );
 
@@ -71,6 +71,7 @@ class AuthSessionStoreTest {
         assertNotNull(data);
         assertEquals(42L, data.accountId());
         assertEquals(3L, data.passwordVersion());
+        assertNull(data.authVersion());
 
         // 两类账号的 Session key 相互隔离
         assertNull(sessionStore.find(AccountType.SYS_USER, sessionId));
@@ -84,13 +85,13 @@ class AuthSessionStoreTest {
     }
 
     @Test
-    void sysUserSessionHasNoPasswordVersion() {
+    void sysUserSessionStoresAuthenticationVersion() {
         String sessionId = newSessionId();
 
         sessionStore.save(
                 AccountType.SYS_USER,
                 sessionId,
-                new AuthSessionData(7L, null),
+                new AuthSessionData(7L, null, 4L),
                 Duration.ofDays(30)
         );
 
@@ -98,6 +99,7 @@ class AuthSessionStoreTest {
         assertNotNull(data);
         assertEquals(7L, data.accountId());
         assertNull(data.passwordVersion());
+        assertEquals(4L, data.authVersion());
     }
 
     @Test
@@ -106,7 +108,7 @@ class AuthSessionStoreTest {
         sessionStore.save(
                 AccountType.USER,
                 sessionId,
-                new AuthSessionData(1L, 0L),
+                new AuthSessionData(1L, 0L, null),
                 Duration.ofMinutes(5)
         );
 

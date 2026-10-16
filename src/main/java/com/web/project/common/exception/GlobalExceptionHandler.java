@@ -111,14 +111,7 @@ public class GlobalExceptionHandler {
 
     private void logSystemException(Exception exception) {
         // 保留原因链的诊断信息，底层异常消息可能包含 SQL 参数或凭据，因此不写入日志。
-        StringBuilder diagnostics = new StringBuilder();
-        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
-            diagnostics.append(cause.getClass().getName()).append('\n');
-            for (StackTraceElement frame : cause.getStackTrace()) {
-                diagnostics.append("\tat ").append(frame).append('\n');
-            }
-        }
-        log.error("服务器内部异常，类型和调用栈：\n{}", diagnostics);
+        log.error("服务器内部异常，类型和调用栈：\n{}", ExceptionDiagnostics.withoutMessages(exception));
     }
 
     /**

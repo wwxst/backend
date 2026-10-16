@@ -71,6 +71,7 @@ class AuthSessionServiceTest {
         sysUser.setId(id);
         sysUser.setUsername("admin");
         sysUser.setStatus(1);
+        sysUser.setAuthVersion(0L);
         return sysUser;
     }
 
@@ -86,7 +87,7 @@ class AuthSessionServiceTest {
     void sysUserSessionRefreshReturnsNewAccessToken() {
         when(sysUserMapper.selectById(1L)).thenReturn(activeSysUser(1L));
 
-        TokenPairVO pair = authSessionService.createSession(AccountType.SYS_USER, 1L, null);
+        TokenPairVO pair = authSessionService.createSession(AccountType.SYS_USER, 1L, 0L);
         track(pair);
 
         assertNotNull(pair.accessToken());
@@ -119,7 +120,7 @@ class AuthSessionServiceTest {
     void deletedSessionRejectsRefresh() {
         when(sysUserMapper.selectById(1L)).thenReturn(activeSysUser(1L));
 
-        TokenPairVO pair = authSessionService.createSession(AccountType.SYS_USER, 1L, null);
+        TokenPairVO pair = authSessionService.createSession(AccountType.SYS_USER, 1L, 0L);
         authSessionService.logout(AccountType.SYS_USER, sessionIdOf(pair.refreshToken()));
 
         assertThrows(
@@ -133,7 +134,7 @@ class AuthSessionServiceTest {
         SysUser admin = activeSysUser(1L);
         when(sysUserMapper.selectById(1L)).thenReturn(admin);
 
-        TokenPairVO pair = authSessionService.createSession(AccountType.SYS_USER, 1L, null);
+        TokenPairVO pair = authSessionService.createSession(AccountType.SYS_USER, 1L, 0L);
         track(pair);
 
         admin.setStatus(0);
@@ -145,10 +146,42 @@ class AuthSessionServiceTest {
     }
 
     @Test
+    void sysUserRefreshRejectsAfterDisableAndReenable() {
+        SysUser admin = activeSysUser(1L);
+        when(sysUserMapper.selectById(1L)).thenReturn(admin);
+
+        TokenPairVO pair = authSessionService.createSession(AccountType.SYS_USER, 1L, 0L);
+        track(pair);
+
+        admin.setStatus(0);
+        admin.setStatus(1);
+        admin.setAuthVersion(1L);
+        assertThrows(BusinessException.class,
+                () -> authSessionService.refresh(pair.refreshToken(), AccountType.SYS_USER));
+    }
+
+    @Test
+    void versionChangeRejectsRefreshFromEveryDevice() {
+        SysUser admin = activeSysUser(1L);
+        when(sysUserMapper.selectById(1L)).thenReturn(admin);
+        TokenPairVO firstDevice = authSessionService.createSession(AccountType.SYS_USER, 1L, 0L);
+        TokenPairVO secondDevice = authSessionService.createSession(AccountType.SYS_USER, 1L, 0L);
+        track(firstDevice);
+        track(secondDevice);
+
+        admin.setAuthVersion(1L);
+
+        assertThrows(BusinessException.class,
+                () -> authSessionService.refresh(firstDevice.refreshToken(), AccountType.SYS_USER));
+        assertThrows(BusinessException.class,
+                () -> authSessionService.refresh(secondDevice.refreshToken(), AccountType.SYS_USER));
+    }
+
+    @Test
     void accountTypeMismatchRejectsRefresh() {
         when(sysUserMapper.selectById(1L)).thenReturn(activeSysUser(1L));
 
-        TokenPairVO pair = authSessionService.createSession(AccountType.SYS_USER, 1L, null);
+        TokenPairVO pair = authSessionService.createSession(AccountType.SYS_USER, 1L, 0L);
         track(pair);
 
         // 系统用户的 Refresh Token 不能用于普通用户接口

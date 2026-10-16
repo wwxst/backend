@@ -54,15 +54,15 @@ public final class SnowflakeIdGenerator {
             throw new IllegalStateException(CLOCK_ROLLBACK_MESSAGE);
         }
 
+        long nextSequence = 0;
         if (timestamp == lastTimestamp) {
-            sequence = (sequence + 1) & SEQUENCE_MASK;
-            if (sequence == 0) {
+            nextSequence = (sequence + 1) & SEQUENCE_MASK;
+            if (nextSequence == 0) {
                 timestamp = waitUntilNextMillis(lastTimestamp);
             }
-        } else {
-            sequence = 0;
         }
 
+        sequence = nextSequence;
         lastTimestamp = timestamp;
         return ((timestamp - CUSTOM_EPOCH_MILLIS) << TIMESTAMP_SHIFT)
                 | (datacenterId << DATACENTER_ID_SHIFT)

@@ -17,7 +17,7 @@ import java.time.Instant;
  *
  * 统一为两类账号签发 Access Token 和 Refresh Token。
  * 公共 claims 固定为 sub、accountType、sessionId、scope、tokenType；
- * 普通用户额外携带 passwordVersion，系统用户当前没有密码版本字段。
+ * 普通用户携带 passwordVersion，系统用户携带 authVersion。
  */
 @Service
 @RequiredArgsConstructor
@@ -32,21 +32,21 @@ public class JwtTokenService {
      * @param accountType     账号类型
      * @param accountId       账号主键，写入 sub
      * @param sessionId       当前登录会话 ID
-     * @param passwordVersion 普通用户密码版本；系统用户传 null
+     * @param credentialVersion 普通用户密码版本或系统用户认证版本
      * @return Access Token 字符串
      */
     public String createAccessToken(
             AccountType accountType,
             Long accountId,
             String sessionId,
-            Long passwordVersion
+            Long credentialVersion
     ) {
         return createToken(
                 accountType,
                 accountId,
                 sessionId,
                 TokenType.ACCESS,
-                passwordVersion,
+                credentialVersion,
                 jwtProperties.accessTokenExpiration()
         );
     }
@@ -57,21 +57,21 @@ public class JwtTokenService {
      * @param accountType     账号类型
      * @param accountId       账号主键，写入 sub
      * @param sessionId       当前登录会话 ID
-     * @param passwordVersion 普通用户密码版本；系统用户传 null
+     * @param credentialVersion 普通用户密码版本或系统用户认证版本
      * @return Refresh Token 字符串
      */
     public String createRefreshToken(
             AccountType accountType,
             Long accountId,
             String sessionId,
-            Long passwordVersion
+            Long credentialVersion
     ) {
         return createToken(
                 accountType,
                 accountId,
                 sessionId,
                 TokenType.REFRESH,
-                passwordVersion,
+                credentialVersion,
                 jwtProperties.refreshTokenExpiration()
         );
     }
@@ -86,7 +86,7 @@ public class JwtTokenService {
             Long accountId,
             String sessionId,
             TokenType tokenType,
-            Long passwordVersion,
+            Long credentialVersion,
             Duration expiration
     ) {
         Instant now = Instant.now();
@@ -104,9 +104,9 @@ public class JwtTokenService {
                 // 解码入口据此拒绝 Access 与 Refresh 类型混用。
                 .claim("tokenType", tokenType.value());
 
-        // 普通用户额外携带密码版本；系统用户不携带该 claim
-        if (passwordVersion != null) {
-            claims.claim("passwordVersion", passwordVersion);
+        // Both account types carry the version used to revoke stale credentials.
+        if (credentialVersion != null) {
+            claims.claim(accountType == AccountType.SYS_USER ? "authVersion" : "passwordVersion", credentialVersion);
         }
 
         return jwtEncoder

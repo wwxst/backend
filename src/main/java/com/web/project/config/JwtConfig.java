@@ -1,7 +1,9 @@
 package com.web.project.config;
 
+import com.web.project.admin.mapper.SysUserMapper;
 import com.web.project.auth.model.TokenType;
 import com.web.project.config.properties.JwtProperties;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -68,9 +70,10 @@ public class JwtConfig {
     @Bean
     public JwtDecoder jwtDecoder(
             SecretKey jwtSecretKey,
-            JwtProperties jwtProperties
+            JwtProperties jwtProperties,
+            ObjectProvider<SysUserMapper> sysUserMappers
     ) {
-        return buildDecoder(jwtSecretKey, jwtProperties, TokenType.ACCESS);
+        return buildDecoder(jwtSecretKey, jwtProperties, TokenType.ACCESS, sysUserMappers.getIfAvailable());
     }
 
     /**
@@ -84,7 +87,7 @@ public class JwtConfig {
             JwtProperties jwtProperties
     ) {
         return new RefreshTokenDecoder(
-                buildDecoder(jwtSecretKey, jwtProperties, TokenType.REFRESH)
+                buildDecoder(jwtSecretKey, jwtProperties, TokenType.REFRESH, null)
         );
     }
 
@@ -99,7 +102,8 @@ public class JwtConfig {
     private JwtDecoder buildDecoder(
             SecretKey jwtSecretKey,
             JwtProperties jwtProperties,
-            TokenType tokenType
+            TokenType tokenType,
+            SysUserMapper sysUserMapper
     ) {
         NimbusJwtDecoder jwtDecoder = NimbusJwtDecoder
                 .withSecretKey(jwtSecretKey)
@@ -107,11 +111,14 @@ public class JwtConfig {
                 .build();
 
         // 两种 Token 都验证签发者与时间字段，再按入口隔离用途。
-        OAuth2TokenValidator<Jwt> validator =
-                new DelegatingOAuth2TokenValidator<>(
+        OAuth2TokenValidator<Jwt> validator = tokenType == TokenType.ACCESS
+                ? new DelegatingOAuth2TokenValidator<>(
                         JwtValidators.createDefaultWithIssuer(jwtProperties.issuer()),
-                        new TokenTypeValidator(tokenType)
-                );
+                        new TokenTypeValidator(tokenType),
+                        new SysUserTokenValidator(sysUserMapper))
+                : new DelegatingOAuth2TokenValidator<>(
+                        JwtValidators.createDefaultWithIssuer(jwtProperties.issuer()),
+                        new TokenTypeValidator(tokenType));
 
         jwtDecoder.setJwtValidator(validator);
 

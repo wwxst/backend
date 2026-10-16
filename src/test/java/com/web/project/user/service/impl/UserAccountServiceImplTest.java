@@ -3,6 +3,7 @@ package com.web.project.user.service.impl;
 import com.web.project.common.error.ErrorCode;
 import com.web.project.common.exception.BusinessException;
 import com.web.project.user.dto.UpdateUserAccountDTO;
+import com.web.project.user.dto.UserAccountQueryDTO;
 import com.web.project.user.entity.UserAccount;
 import com.web.project.user.mapper.UserAccountMapper;
 import org.junit.jupiter.api.Test;
@@ -10,6 +11,7 @@ import org.springframework.dao.DuplicateKeyException;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import java.util.List;
 
 class UserAccountServiceImplTest {
     private final UserAccountMapper mapper = mock(UserAccountMapper.class);
@@ -51,6 +53,21 @@ class UserAccountServiceImplTest {
         verify(mapper).updateAccount(5L, "新昵称", null, "new@example.com");
         verify(mapper).selectById(5L);
         verifyNoMoreInteractions(mapper);
+    }
+
+    @Test
+    void listReturnsExistingAvatarField() {
+        UserAccount stored = new UserAccount();
+        stored.setId(5L);
+        stored.setUserNo("123456");
+        stored.setAvatar("https://files.example/avatar.png");
+        stored.setStatus(1);
+        when(mapper.countByCondition(null, null)).thenReturn(1L);
+        when(mapper.selectPageByCondition(null, null, 0L, 10, null)).thenReturn(List.of(stored));
+
+        var result = service.getUserPage(new UserAccountQueryDTO());
+
+        assertEquals("https://files.example/avatar.png", result.records().getFirst().avatar());
     }
 
     @Test

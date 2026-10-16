@@ -53,8 +53,7 @@ public class SysUserAuthServiceImpl implements SysUserAuthService {
             throw new BusinessException(ErrorCode.SYS_USER_DISABLED);
         }
 
-        // 系统用户没有密码版本字段，passwordVersion 传 null
-        return authSessionService.createSession(AccountType.SYS_USER, sysUser.getId(), null);
+        return authSessionService.createSession(AccountType.SYS_USER, sysUser.getId(), sysUser.getAuthVersion());
     }
 
     /**

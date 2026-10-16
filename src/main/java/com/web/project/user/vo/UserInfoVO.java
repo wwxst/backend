@@ -1,5 +1,8 @@
 package com.web.project.user.vo;
 
+import tools.jackson.databind.annotation.JsonSerialize;
+import tools.jackson.databind.ser.std.ToStringSerializer;
+
 import java.time.LocalDateTime;
 
 /**
@@ -17,7 +20,7 @@ import java.time.LocalDateTime;
  * @param createdAt 创建时间
  */
 public record UserInfoVO(
-        Long id,
+        @JsonSerialize(using = ToStringSerializer.class) Long id,
         String userNo,
         String phone,
         String email,

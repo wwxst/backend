@@ -29,6 +29,9 @@ public class SysUser {
      */
     private Integer status;
 
+    /** 登录凭据或账号状态变化时递增，立即撤销所有旧 JWT。 */
+    private Long authVersion;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;

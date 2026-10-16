@@ -21,6 +21,8 @@ class SysUserTableNamingTest {
 
         assertTrue(schema.contains("CREATE TABLE sys_user"));
         assertTrue(schema.contains("uk_sys_user_username"));
+        assertTrue(schema.contains("auth_version   BIGINT       NOT NULL DEFAULT 0"));
+        assertTrue(schema.contains("INSERT INTO sys_user (username, password, nickname, status)"));
         assertFalse(schema.contains("admin_user"));
         assertFalse(mapper.contains("admin_user"));
         assertTrue(mapper.contains("FROM sys_user"));

@@ -106,6 +106,28 @@ class SnowflakeIdGeneratorTest {
     }
 
     @Test
+    void clockRollbackDuringSequenceWaitPreservesSequenceForRecovery() {
+        long timestamp = System.currentTimeMillis();
+        AtomicInteger clockCalls = new AtomicInteger();
+        LongSupplier clock = () -> {
+            int call = clockCalls.getAndIncrement();
+            if (call < 4097 || call == 4098) {
+                return timestamp;
+            }
+            return call == 4097 ? timestamp - 1 : timestamp + 1;
+        };
+        SnowflakeIdGenerator generator = new SnowflakeIdGenerator(0, 0, clock);
+        long lastId = 0;
+        for (int index = 0; index < 4096; index++) {
+            lastId = generator.nextId();
+        }
+
+        assertThrows(IllegalStateException.class, generator::nextId);
+
+        assertTrue(generator.nextId() > lastId, "Recovery must not reissue an ID from the exhausted millisecond");
+    }
+
+    @Test
     void clockRollbackIsRejected() {
         AtomicLong clock = new AtomicLong(System.currentTimeMillis());
         SnowflakeIdGenerator generator = new SnowflakeIdGenerator(0, 0, clock::get);

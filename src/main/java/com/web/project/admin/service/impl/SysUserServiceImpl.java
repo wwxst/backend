@@ -14,6 +14,7 @@ import com.web.project.admin.vo.SysUserListVO;
 import com.web.project.auth.util.PasswordPolicy;
 import com.web.project.common.error.ErrorCode;
 import com.web.project.common.exception.BusinessException;
+import com.web.project.common.exception.ExceptionDiagnostics;
 import com.web.project.common.result.PageResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
@@ -22,6 +23,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
@@ -31,6 +34,8 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class SysUserServiceImpl implements SysUserService {
+
+    private static final Logger log = LoggerFactory.getLogger(SysUserServiceImpl.class);
 
     private final SysUserMapper sysUserMapper;
     private final PasswordEncoder passwordEncoder;
@@ -81,6 +86,9 @@ public class SysUserServiceImpl implements SysUserService {
     @Override
     @Transactional
     public void updateStatus(Long id, Integer status) {
+        if (Long.valueOf(1L).equals(id) && Integer.valueOf(0).equals(status)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "超级管理员不允许停用");
+        }
         requireExistingUser(sysUserMapper.updateStatus(id, status));
     }
 
@@ -161,12 +169,20 @@ public class SysUserServiceImpl implements SysUserService {
             throw exception;
         }
 
-        storageService.delete(change.previousFileId());
+        try {
+            storageService.delete(change.previousFileId());
+        } catch (RuntimeException exception) {
+            log.warn("Failed to clean up previous avatar file for system user {}; types and stack frames:\n{}",
+                    id, ExceptionDiagnostics.withoutMessages(exception));
+        }
         return change.user();
     }
 
     @Override
     public void delete(Long id) {
+        if (Long.valueOf(1L).equals(id)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "超级管理员不允许删除");
+        }
         Long previousFileId = transactions.execute(status -> {
             SysUser current = sysUserMapper.selectByIdForUpdate(id);
             if (current == null) {

@@ -222,6 +222,10 @@ class BackendGate:
         self.sensitive.extend(sys_pair.values())
         self.sys_token = sys_pair["accessToken"]
         self.check("system profile", "GET", "/api/sys-user/auth/me", token=self.sys_token)
+        self.check("super admin cannot be disabled", "PATCH", "/api/sys-user/sys-users/1/status",
+                   {"status": 0}, self.sys_token, status=400, code=40000)
+        self.check("super admin cannot be deleted", "DELETE", "/api/sys-user/sys-users/1", {},
+                   self.sys_token, status=400, code=40000)
         self.check("wrong system password", "POST", "/api/sys-user/auth/login",
                    {"username": "admin", "password": "wrong"}, status=401, code=40101)
         self.check("unknown system account", "POST", "/api/sys-user/auth/login",
@@ -241,29 +245,58 @@ class BackendGate:
                        {"enabled": True, "codeEnabled": True}, self.sys_token)
         self.channel_checks()
         self.storage_checks()
-        self.sql("UPDATE sys_user SET status=0 WHERE username='admin'")
-        try:
-            self.check("disabled system profile", "GET", "/api/sys-user/auth/me", token=self.sys_token,
-                       status=403, code=40302)
-            self.check("disabled system login", "POST", "/api/sys-user/auth/login",
-                       {"username": "admin", "password": "123456"}, status=403, code=40302)
-            self.check("disabled system refresh", "POST", "/api/sys-user/auth/refresh",
-                       {"refreshToken": sys_pair["refreshToken"]}, status=401, code=40104)
-        finally:
-            self.sql("UPDATE sys_user SET status=1 WHERE username='admin'")
         self.check("system logout", "POST", "/api/sys-user/auth/logout", {}, self.sys_token)
         self.check("idempotent system logout", "POST", "/api/sys-user/auth/logout", {}, self.sys_token)
         self.check("system logout blocks refresh", "POST", "/api/sys-user/auth/refresh",
                    {"refreshToken": sys_pair["refreshToken"]}, status=401, code=40104)
         self.sql("INSERT INTO sys_user (username,password,nickname) "
                  "SELECT 'quality-system',password,'quality' FROM sys_user WHERE username='admin'")
-        deleted_sys_pair = self.check("temporary system login", "POST", "/api/sys-user/auth/login",
-                                      {"username": "quality-system", "password": "123456"})
-        self.sql("DELETE FROM sys_user WHERE username='quality-system'")
+        system_id = int(self.sql("SELECT id FROM sys_user WHERE username='quality-system'"))
+        system_path = f"/api/sys-user/sys-users/{system_id}"
+        first_device = self.check("temporary system login", "POST", "/api/sys-user/auth/login",
+                                  {"username": "quality-system", "password": "123456"})
+        second_device = self.check("temporary system second-device login", "POST", "/api/sys-user/auth/login",
+                                   {"username": "quality-system", "password": "123456"})
+        self.sensitive.extend(first_device.values())
+        self.sensitive.extend(second_device.values())
+        reset_password = "Quality-" + secrets.token_hex(8)
+        self.sensitive.append(reset_password)
+        self.check("admin resets system password", "PATCH", system_path + "/password",
+                   {"password": reset_password}, self.sys_token)
+        for device in (first_device, second_device):
+            self.check("password reset rejects old system access", "GET", "/api/sys-user/sys-users",
+                       token=device["accessToken"], status=401, code=40102)
+            self.check("password reset rejects old system refresh", "POST", "/api/sys-user/auth/refresh",
+                       {"refreshToken": device["refreshToken"]}, status=401, code=40104)
+        fresh_pair = self.check("system login after password reset", "POST", "/api/sys-user/auth/login",
+                                {"username": "quality-system", "password": reset_password})
+        self.sensitive.extend(fresh_pair.values())
+        self.check("new system token works after password reset", "GET", "/api/sys-user/sys-users",
+                   token=fresh_pair["accessToken"])
+        self.check("admin disables system user", "PATCH", system_path + "/status",
+                   {"status": 0}, self.sys_token)
+        self.check("disabled system access rejected", "GET", "/api/sys-user/sys-users",
+                   token=fresh_pair["accessToken"], status=401, code=40102)
+        self.check("disabled system refresh rejected", "POST", "/api/sys-user/auth/refresh",
+                   {"refreshToken": fresh_pair["refreshToken"]}, status=401, code=40104)
+        self.check("disabled system login rejected", "POST", "/api/sys-user/auth/login",
+                   {"username": "quality-system", "password": reset_password}, status=403, code=40302)
+        self.check("admin reenables system user", "PATCH", system_path + "/status",
+                   {"status": 1}, self.sys_token)
+        self.check("reenabled system keeps old access rejected", "GET", "/api/sys-user/sys-users",
+                   token=fresh_pair["accessToken"], status=401, code=40102)
+        self.check("reenabled system keeps old refresh rejected", "POST", "/api/sys-user/auth/refresh",
+                   {"refreshToken": fresh_pair["refreshToken"]}, status=401, code=40104)
+        reenabled_pair = self.check("system login after reenable", "POST", "/api/sys-user/auth/login",
+                                    {"username": "quality-system", "password": reset_password})
+        self.sensitive.extend(reenabled_pair.values())
+        self.check("new system token works after reenable", "GET", "/api/sys-user/sys-users",
+                   token=reenabled_pair["accessToken"])
+        self.check("admin deletes ordinary system user", "DELETE", system_path, {}, self.sys_token)
         self.check("deleted system profile", "GET", "/api/sys-user/auth/me",
-                   token=deleted_sys_pair["accessToken"], status=401, code=40102)
+                   token=reenabled_pair["accessToken"], status=401, code=40102)
         self.check("deleted system refresh", "POST", "/api/sys-user/auth/refresh",
-                   {"refreshToken": deleted_sys_pair["refreshToken"]}, status=401, code=40104)
+                   {"refreshToken": reenabled_pair["refreshToken"]}, status=401, code=40104)
 
         self.email = "quality-" + uuid.uuid4().hex + "@example.com"
         code = self.issue_code(self.email, "REGISTER")
@@ -271,7 +304,10 @@ class BackendGate:
                           {"target": self.email, "targetType": "EMAIL", "code": code, "password": password})
         self.sensitive.extend(pair.values())
         token = pair["accessToken"]
-        self.check("user profile", "GET", "/api/user/me", token=token)
+        profile = self.check("user profile", "GET", "/api/user/me", token=token)
+        registered_id = self.sql("SELECT id FROM user_account WHERE email='" + self.email + "'")
+        require(isinstance(profile["id"], str) and profile["id"] == registered_id,
+                "Registered user ID must be an exact JSON string matching the database")
         self.list_checks()
         self.admin_user_edit_checks(token, sys_pair["refreshToken"])
         self.admin_user_status_checks(pair, sys_pair["refreshToken"])
@@ -335,6 +371,9 @@ class BackendGate:
                                 {"target": phone, "targetType": "PHONE", "code": code, "password": password})
         profile = self.check("phone profile", "GET", "/api/user/me", token=phone_pair["accessToken"])
         require(profile["phone"] == phone and profile["email"] is None, "Phone registration mapped wrong contact")
+        registered_id = self.sql("SELECT id FROM user_account WHERE phone='" + phone + "'")
+        require(isinstance(profile["id"], str) and profile["id"] == registered_id,
+                "Phone user ID must be an exact JSON string matching the database")
         self.check("logout", "POST", "/api/user/auth/logout", {}, no_password_pair["accessToken"])
         self.check("idempotent logout", "POST", "/api/user/auth/logout", {}, no_password_pair["accessToken"])
         self.check("logout blocks refresh", "POST", "/api/user/auth/refresh",
@@ -349,10 +388,11 @@ class BackendGate:
 
     def admin_user_status_checks(self, pair, admin_refresh):
         profile = self.check("status target profile", "GET", "/api/user/me", token=pair["accessToken"])
-        user_id = int(profile["id"])
+        user_id = profile["id"]
+        require(isinstance(user_id, str), "Status target ID must be a JSON string")
         path = f"/api/sys-user/users/{user_id}/status"
         protected_query = ("SELECT user_no,phone,email,nickname,password,password_version,avatar,created_at "
-                           f"FROM user_account WHERE id={user_id}")
+                           f"FROM user_account WHERE id={int(user_id)}")
         before = self.sql(protected_query)
         for name, token, status, code in (
                 ("anonymous cannot change status", None, 401, 40102),
@@ -383,7 +423,7 @@ class BackendGate:
                 results = list(executor.map(change_status, range(8)))
             require(all((status, body["code"]) == (200, 200) for status, body, _ in results),
                     "Concurrent repeated status writes failed")
-            require(self.sql(f"SELECT status FROM user_account WHERE id={user_id}") == str(user_status),
+            require(self.sql(f"SELECT status FROM user_account WHERE id={int(user_id)}") == str(user_status),
                     "Status writes saved an incorrect state")
             require(self.sql(protected_query) == before, "Status writes changed other account fields")
             listed = self.check("status filter matches saved state", "GET",
@@ -402,7 +442,7 @@ class BackendGate:
         new_email = "edited-" + suffix + "@example.com"
         race_email = "edit-race-" + suffix + "@example.com"
         phone = "139" + str(secrets.randbelow(100000000)).zfill(8)
-        first_seed_id = 1_000_000_000_000 + secrets.randbelow(1_000_000_000_000)
+        first_seed_id = 9_007_199_254_740_993
         second_seed_id = first_seed_id + 1
         self.sensitive.extend([first_email, second_email, new_email, race_email, phone])
         self.sql("INSERT INTO user_account (id,user_no,email,password,password_version,nickname,avatar,status) "
@@ -422,10 +462,15 @@ class BackendGate:
         self.check("refresh cannot edit user", "PUT", path, payload, refresh_token, status=401, code=40102)
         for label in ("admin edits disabled user", "repeated admin edit succeeds"):
             edited = self.check(label, "PUT", path, payload, self.sys_token)
-            require(edited["id"] == first_id and edited["nickname"] == "edited" and edited["phone"] is None
+            require(edited["id"] == str(first_id) and edited["nickname"] == "edited" and edited["phone"] is None
                     and edited["email"] == new_email and edited["status"] == 0,
                     "Admin edit returned incorrect normalized data")
             require("password" not in edited and "passwordVersion" not in edited, "Admin edit exposed credentials")
+        listed = self.check("edited user ID remains exact in filtered list", "GET",
+                            "/api/sys-user/users?keyword=edit-first-" + suffix + "&status=0", token=self.sys_token)
+        require(listed["total"] == 1 and len(listed["records"]) == 1
+                and listed["records"][0]["id"] == str(first_seed_id),
+                "Filtered user list lost the exact JSON string ID above the JavaScript safe integer range")
         require(self.sql(protected_query) == protected_before, "Admin edit changed protected fields")
         for label, invalid in (
                 ("admin edit needs one contact", {"nickname": "edited", "phone": " ", "email": None}),
@@ -494,6 +539,9 @@ class BackendGate:
             path = "/api/sys-user/" + resource
             data = self.check("populated " + resource, "GET", path + "?keyword=%20%20&status=1", token=self.sys_token)
             require(data["total"] > 0 and data["records"], "Populated list omitted records")
+            if resource == "users":
+                require(all(isinstance(row["id"], str) for row in data["records"]),
+                        "Ordinary user list IDs must be JSON strings")
             require(all("password" not in row and "passwordVersion" not in row for row in data["records"]),
                     "List returned password data")
             data = self.check("unmatched " + resource, "GET", path + "?keyword=does-not-exist&status=0",

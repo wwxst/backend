@@ -198,6 +198,8 @@ class MapperIntegrationTest {
     void sysUserListExcludesPasswordWhileCredentialLookupRetainsIt() {
         SysUser credentials = sysUserMapper.selectByUsername("admin");
         assertNotNull(credentials.getPassword());
+        assertEquals(1L, credentials.getId());
+        assertEquals(0L, credentials.getAuthVersion());
         assertEquals(credentials.getId(), sysUserMapper.selectById(credentials.getId()).getId());
         assertEquals(1L, sysUserMapper.countByCondition("admin", 1));
         SysUser listed = sysUserMapper.selectPageByCondition("admin", 1, 0L, 10, null).getFirst();
@@ -243,8 +245,23 @@ class MapperIntegrationTest {
         assertEquals(1, sysUserMapper.update(user));
         assertEquals(1, sysUserMapper.updatePassword(user.getId(), "reset-hash"));
         assertEquals("reset-hash", sysUserMapper.selectById(user.getId()).getPassword());
+        assertEquals(2L, sysUserMapper.selectById(user.getId()).getAuthVersion());
         assertEquals(1, sysUserMapper.deleteById(user.getId()));
         assertEquals(0, sysUserMapper.deleteById(user.getId()));
+    }
+
+    @Test
+    void userListIncludesExistingAvatarColumn() {
+        jdbcTemplate.update("""
+                INSERT INTO user_account (id, user_no, avatar, nickname)
+                VALUES (1008, 'avatar-list-test', 'https://files.example/avatar.png', '列表头像')
+                """);
+        var query = new com.web.project.user.dto.UserAccountQueryDTO();
+        query.setKeyword("avatar-list-test");
+
+        var result = userAccountService.getUserPage(query);
+
+        assertEquals("https://files.example/avatar.png", result.records().getFirst().avatar());
     }
 
     @Test

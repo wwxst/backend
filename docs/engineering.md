@@ -14,7 +14,9 @@
 
 数据库表 `sys_user` 对应的 Java 类型统一使用 `SysUser` 前缀，包括 Controller、DTO、Service、Mapper 和 VO；接口路径统一使用 `/api/sys-user/**`。`admin` 只作为 JWT scope 权限值保留，不作为系统用户领域类型名。
 
-两类账号共用 `PasswordEncoder`、`JwtTokenService`、`AuthSessionService`、`AuthSessionStore`、Token DTO、有效期配置、JWT 校验、Refresh 和 Logout 流程。JWT 公共 claims 为 `sub`、`accountType`、`sessionId`、`scope`、`tokenType`，普通用户额外携带 `passwordVersion`；`sub` 保存账号主键。会话 key 为 `auth:session:{accountType}:{sessionId}`。资源接口只接受 Access Token，Refresh 接口只接受 Refresh Token，两类账号的会话通过 `accountType` 段相互隔离。
+两类账号共用 `PasswordEncoder`、`JwtTokenService`、`AuthSessionService`、`AuthSessionStore`、Token DTO、有效期配置、JWT 校验、Refresh 和 Logout 流程。JWT 公共 claims 为 `sub`、`accountType`、`sessionId`、`scope`、`tokenType`；普通用户额外携带 `passwordVersion`，系统用户额外携带 `authVersion`；`sub` 保存账号主键。会话 key 为 `auth:session:{accountType}:{sessionId}`。系统用户的每个受保护请求都会读取数据库状态和认证版本，禁用、密码重置后旧 Access Token 立即失效；Refresh 同时核对数据库、JWT 和 Redis 中的版本。资源接口只接受 Access Token，Refresh 接口只接受 Refresh Token，两类账号的会话通过 `accountType` 段相互隔离。
+
+普通用户 `user_account.id` 由服务端生成 Snowflake ID，数据库使用 `BIGINT UNSIGNED`，Java 使用 `Long`。普通用户资料、管理列表和编辑响应中的 `id` 以十进制 JSON 字符串返回；前端应保留原字符串用于列表标识及编辑、状态切换路径，不转换为 JavaScript `Number`，避免超出安全整数范围后丢失精度。`userNo` 是独立的对外展示号码，不参与登录和鉴权。
 
 ## 最小实现原则
 
@@ -105,9 +107,11 @@ python scripts/verify_backend.py `
 
 路径按本机安装位置调整；MySQL 地址可通过 `--db-host`、`--db-port` 指定，账号和密码沿用 `DB_USERNAME`、`DB_PASSWORD`。脚本自行生成独立数据库和 JWT 密钥、启动私有 Redis 与实际打包应用，不使用现有业务库或 Redis 数据；结束后删除本次创建的库并关闭自己的进程。MySQL 服务是已有本机服务，不会被停止；容量结论因此只用于本机基线。
 
-脚本执行 `clean verify`，拒绝必需集成测试跳过，再通过真实 HTTP 验证注册、两类账号登录/续期/退出、权限、渠道、个人资料、密码版本、换绑、管理端编辑普通用户及错误路径。并发检查在 HTTP 层验证验证码登录、发送和注册各 16 个请求的结果分布，以及两个管理员编辑请求争用同一联系方式时仅一个成功。故障检查验证无效渠道配置、Redis 中断及恢复，并扫描本次敏感值是否进入应用日志。验证码从私有 Redis 读取，只用于验证开发发送实现，不代表真实短信/邮件送达。
+脚本执行 `clean verify`，拒绝必需集成测试跳过，再通过真实 HTTP 验证注册、两类账号登录/续期/退出、权限、渠道、个人资料、密码版本、换绑、管理端编辑普通用户及错误路径。普通用户注册后的资料 ID 必须是与数据库一致的字符串；管理端编辑与过滤列表使用 `9007199254740993` 验证超出 JavaScript 安全整数范围时仍精确返回字符串 ID。并发检查在 HTTP 层验证验证码登录、发送和注册各 16 个请求的结果分布，以及两个管理员编辑请求争用同一联系方式时仅一个成功。故障检查验证无效渠道配置、Redis 中断及恢复，并扫描本次敏感值是否进入应用日志。验证码从私有 Redis 读取，只用于验证开发发送实现，不代表真实短信/邮件送达。
 
-默认性能基线先预热 20 次，再分别以 1、8、24 个并发工作线程持续 10 秒，约 40% 查询资料、40% 续期、20% 密码登录；`--seconds` 可设为 1～60。通过条件是非预期错误为零且每档结束后的资料查询正常；记录吞吐量、P95/P99、Java CPU 时间和阶段结束时工作集、Redis 内存、MySQL 连接数。该短时基线不设响应时间 SLA，不等同于长时间稳定性、超载极限或生产容量验收。
+默认性能基线分别重启应用执行 `control` 和 `protected` 两轮：前者将并行密码校验上限设为 100000，后者设为 8；两轮都将每 IP 和每账号的登录次数上限设为 1000000000，以观察并行密码校验限制。每轮先预热 20 次资料查询，再执行混合请求（约 40% 查询资料、40% 续期、20% 密码登录）和纯密码登录两种模式，各自以 1、8、24、48 个并发工作线程持续 10 秒，共 16 个负载阶段；`--seconds` 可将每阶段时长设为 1～60 秒。每阶段清空私有 Redis 并重新登录后开始计量。
+
+负载阶段将成功业务响应和业务码为 `42901` 的 HTTP 429 记为预期结果；每阶段须实际发出请求，HTTP 5xx、超时和其他非预期响应合计须为零，且结束后的续期及资料查询正常。脚本记录各状态数量、总吞吐量、全部响应及成功响应的 P95/P99、各操作的延迟、登录保护指标、Java CPU 时间和阶段结束时工作集、线程数、Redis 内存、MySQL 连接数。受控拒绝计入总吞吐量，不能将总吞吐量当作成功业务吞吐量。该短时基线不设响应时间 SLA 或最低成功吞吐量，不等同于长时间稳定性、超载极限或生产容量验收。
 
 结果与日志位于 `target/quality-gate/`。脚本在停止应用前从 JaCoCo TCP agent 拉取 HTTP 执行数据，追加到测试覆盖率后生成合并报告。它只执行自动验证，4 次规范检查与 3 次 Review 仍须实际完成并记录；不能把脚本成功等同于完成审查。
 
@@ -124,6 +128,8 @@ python scripts/verify_backend.py `
 在 IDEA 的 `Run > Edit Configurations > Environment variables` 中配置 `JWT_SECRET` 即可覆盖本地默认值。使用 Maven 面板启动时，将变量配置到 Maven Runner 的环境变量中。更换签名密钥会使旧 Token 失效；已使用旧默认密钥的环境应重新登录。
 
 数据库配置、Redis 连接和 Token 有效期以 `src/main/resources/application.yml` 为准。本地开发默认连接 `localhost:6379` 的 0 号库，可用 `REDIS_HOST`、`REDIS_PORT`、`REDIS_DATABASE`、`REDIS_PASSWORD` 覆盖。测试不通过打印密码哈希或密钥充当验证；需要实际的成功与失败断言。
+
+Snowflake 节点标识通过 `ID_GENERATOR_DATACENTER_ID`、`ID_GENERATOR_WORKER_ID` 配置，取值均为 0～31，默认均为 0。多实例部署必须为每个实例分配唯一的组合；普通用户主键由该节点生成后写入数据库，不依赖自增主键。
 
 MySQL Connector/J 使用默认的 `useAffectedRows=false`，UPDATE 返回匹配行数，重复提交相同值也返回 1。自定义 `DB_URL` 时保持该语义；Service 用它区分“记录存在”与“记录已消失”。JWT issuer 不得为空，Access/Refresh 有效期均至少为 1 秒，无效配置在启动时拒绝。
 

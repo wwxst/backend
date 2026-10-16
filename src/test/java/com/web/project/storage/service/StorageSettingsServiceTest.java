@@ -44,6 +44,8 @@ class StorageSettingsServiceTest {
         when(config.updateValue(anyString(), anyString())).thenAnswer(call -> { values.put(call.getArgument(0), call.getArgument(1)); return 1; });
         space = new StorageSpace(); space.setId(7L); space.setBucketName("old-bucket"); space.setRegionId("oss-cn-hangzhou");
         when(spaces.selectById(7L)).thenReturn(space);
+        when(spaces.count()).thenReturn(1L);
+        when(spaces.selectPage(0L, 1000)).thenReturn(List.of(space));
     }
 
     @Test void defaultAndProviderSwitchRequireRemoteValidationBeforeWriting() {
@@ -113,6 +115,41 @@ class StorageSettingsServiceTest {
         assertFalse(dto.toString().contains("new-secret")); assertFalse(dto.toString().contains("new-id"));
         assertFalse(service.snapshot().toString().contains("new-id"));
         verify(oss).listBuckets(any());
+        verify(oss).validateSpace(eq(space), any());
+    }
+
+    @Test void credentialsAreNotReplacedWhenAnyExistingSpaceRejectsThem() {
+        String beforeId = values.get("storage.aliyun.access-key-id");
+        String beforeSecret = values.get("storage.aliyun.access-key-secret");
+        doThrow(StoragePolicy.bad("空间不可用")).when(oss).validateSpace(eq(space), any());
+
+        assertThrows(BusinessException.class,
+                () -> service.updateCredentials(new StorageCredentialsDTO("new-id", "new-secret")));
+
+        assertEquals(beforeId, values.get("storage.aliyun.access-key-id"));
+        assertEquals(beforeSecret, values.get("storage.aliyun.access-key-secret"));
+        verify(config, never()).updateValue(anyString(), anyString());
+    }
+
+    @Test void credentialsAreNotCommittedWhenValidatedSpaceChangesBeforeCommit() {
+        when(spaces.selectPage(0L, 1000)).thenAnswer(call -> {
+            StorageSpace current = new StorageSpace();
+            current.setId(space.getId());
+            current.setBucketName(space.getBucketName());
+            current.setRegionId(space.getRegionId());
+            return List.of(current);
+        });
+        doAnswer(call -> {
+            space.setRegionId("oss-cn-shanghai");
+            return "public-read";
+        }).when(oss).validateSpace(any(), any());
+        String beforeId = values.get("storage.aliyun.access-key-id");
+
+        assertThrows(BusinessException.class,
+                () -> service.updateCredentials(new StorageCredentialsDTO("new-id", "new-secret")));
+
+        assertEquals(beforeId, values.get("storage.aliyun.access-key-id"));
+        verify(config, never()).updateValue(anyString(), anyString());
     }
 
     @Test void failedCredentialsValidationDoesNotReplaceStoredCredentials() {
@@ -136,6 +173,46 @@ class StorageSettingsServiceTest {
         assertEquals("Bucket 实际读写权限与选择的权限不一致", error.getMessage());
         verify(spaces, never()).insert(any());
         verify(config, never()).selectStorageConfigForUpdate();
+    }
+
+    @Test void bindingWithCandidateCredentialsValidatesBeforeWritingEitherCredentialOrSpace() {
+        doThrow(StoragePolicy.bad("Bucket 不可用")).when(oss).validateSpace(any(), any());
+        var dto = new BindStorageSpaceDTO("new-bucket", "cn-hangzhou", null, "public-read", "new-id", "new-secret");
+
+        assertThrows(BusinessException.class, () -> service.bind(dto));
+        verify(config, never()).updateValue(any(), any());
+        verify(config, never()).selectStorageConfigForUpdate();
+        verify(spaces, never()).insert(any());
+    }
+
+    @Test void bindingRejectsPartialCandidateCredentialsBeforeRemoteValidation() {
+        var dto = new BindStorageSpaceDTO("new-bucket", "cn-hangzhou", null, "public-read", "new-id", null);
+
+        assertThrows(BusinessException.class, () -> service.bind(dto));
+        verifyNoInteractions(oss);
+        verify(config, never()).updateValue(any(), any());
+        verify(spaces, never()).insert(any());
+    }
+
+    @Test void bindingWithCandidateCredentialsCommitsCredentialsAndSpaceTogether() {
+        when(oss.validateSpace(any(), any())).thenReturn("public-read");
+        doAnswer(call -> {
+            StorageSpace inserted = call.getArgument(0);
+            inserted.setId(8L);
+            when(spaces.selectById(8L)).thenReturn(inserted);
+            return 1;
+        }).when(spaces).insert(any());
+
+        var dto = new BindStorageSpaceDTO("new-bucket", "cn-hangzhou", null, "public-read", "new-id", "new-secret");
+        assertEquals("new-bucket", service.bind(dto).bucketName());
+
+        assertEquals("new-id", values.get("storage.aliyun.access-key-id"));
+        assertEquals("new-secret", service.credentials(service.snapshot()).accessKeySecret());
+        assertFalse(dto.toString().contains("new-id"));
+        assertFalse(dto.toString().contains("new-secret"));
+        verify(config).updateValue("storage.aliyun.access-key-id", "new-id");
+        verify(config).updateValue(eq("storage.aliyun.access-key-secret"), anyString());
+        verify(spaces).insert(any());
     }
 
     @Test void bothMatchingPermissionsBindAndCanBecomeDefaultForOss() {

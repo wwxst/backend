@@ -14,6 +14,7 @@
         nickname,
         avatar_file_id,
         status,
+        auth_version,
         created_at,
         updated_at
     </sql>
@@ -99,7 +100,8 @@
     <!-- 修改系统用户状态。 -->
     <update id="updateStatus">
         UPDATE sys_user
-        SET status = #{status}
+        SET status = #{status},
+            auth_version = auth_version + 1
         WHERE id = #{id}
     </update>
 
@@ -120,7 +122,8 @@
     <!-- 管理员重置系统用户密码。 -->
     <update id="updatePassword">
         UPDATE sys_user
-        SET password = #{password}
+        SET password = #{password},
+            auth_version = auth_version + 1
         WHERE id = #{id}
     </update>
 

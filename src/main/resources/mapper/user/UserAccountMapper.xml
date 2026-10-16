@@ -34,6 +34,7 @@
         phone,
         email,
         nickname,
+        avatar,
         status,
         created_at,
         updated_at

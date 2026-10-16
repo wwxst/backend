@@ -15,6 +15,7 @@ CREATE TABLE sys_user
     nickname       VARCHAR(30)  NOT NULL COMMENT '系统用户昵称',
     avatar_file_id  BIGINT       DEFAULT NULL COMMENT '头像文件ID，关联storage_file.id',
     status         TINYINT      NOT NULL DEFAULT 1 COMMENT '状态：1正常，0禁用',
+    auth_version   BIGINT       NOT NULL DEFAULT 0 COMMENT '认证版本，密码或状态变化时递增',
     created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
 

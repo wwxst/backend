@@ -55,7 +55,7 @@ public class UserAccountServiceImpl implements UserAccountService {
 
     private UserAccountListVO toListVO(UserAccount account) {
         return new UserAccountListVO(account.getId(), account.getUserNo(), account.getPhone(), account.getEmail(),
-                account.getNickname(), account.getStatus(), account.getCreatedAt(), account.getUpdatedAt());
+                account.getNickname(), account.getAvatar(), account.getStatus(), account.getCreatedAt(), account.getUpdatedAt());
     }
 
     /**

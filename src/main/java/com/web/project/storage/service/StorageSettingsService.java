@@ -86,11 +86,15 @@ public class StorageSettingsService {
     public void updateCredentials(StorageCredentialsDTO dto) {
         String encrypted = cipher.encrypt(dto.accessKeySecret());
         Snapshot before = snapshot();
+        List<StorageSpace> existingSpaces = selectAllSpaces();
         var supplied = new OssStorageClient.Credentials(dto.accessKeyId(), dto.accessKeySecret());
         oss.listBuckets(supplied);
-        if ("aliyun".equals(before.storageType())) { oss.validateSpace(requireSpace(before.defaultSpaceId()), supplied); }
+        for (StorageSpace existingSpace : existingSpaces) {
+            oss.validateSpace(existingSpace, supplied);
+        }
         transaction.executeWithoutResult(status -> {
             requireUnchanged(before, lockConfig());
+            requireUnchangedSpaces(existingSpaces);
             write(KEY_ID, dto.accessKeyId());
             write(KEY_SECRET, encrypted);
         });
@@ -109,13 +113,38 @@ public class StorageSettingsService {
         space.setRegionId(StoragePolicy.region(dto.regionId()));
         space.setAccessDomain(StoragePolicy.domain(dto.accessDomain()));
         Snapshot before = snapshot();
-        String actualPermission = oss.validateSpace(space, credentials(before));
+        boolean hasCandidateCredentials = dto.accessKeyId() != null || dto.accessKeySecret() != null;
+        if (hasCandidateCredentials && (dto.accessKeyId() == null || dto.accessKeySecret() == null)) {
+            throw StoragePolicy.bad("新凭据必须同时提供 AccessKeyId 和 AccessKeySecret");
+        }
+        String encryptedSecret = null;
+        OssStorageClient.Credentials bindingCredentials;
+        List<StorageSpace> existingSpaces = List.of();
+        if (hasCandidateCredentials) {
+            bindingCredentials = new OssStorageClient.Credentials(dto.accessKeyId(), dto.accessKeySecret());
+            oss.listBuckets(bindingCredentials);
+            existingSpaces = selectAllSpaces();
+            for (StorageSpace existingSpace : existingSpaces) {
+                oss.validateSpace(existingSpace, bindingCredentials);
+            }
+            encryptedSecret = cipher.encrypt(dto.accessKeySecret());
+        } else {
+            bindingCredentials = credentials(before);
+        }
+        String actualPermission = oss.validateSpace(space, bindingCredentials);
         if (!dto.accessPermission().equals(actualPermission)) {
             throw StoragePolicy.bad("Bucket 实际读写权限与选择的权限不一致");
         }
+        final String candidateSecret = encryptedSecret;
+        final List<StorageSpace> validatedExistingSpaces = existingSpaces;
         try {
             return transaction.execute(status -> {
                 requireUnchanged(before, lockConfig());
+                if (hasCandidateCredentials) {
+                    requireUnchangedSpaces(validatedExistingSpaces);
+                    write(KEY_ID, dto.accessKeyId());
+                    write(KEY_SECRET, candidateSecret);
+                }
                 requireWrite(spaceMapper.insert(space));
                 return StorageSpaceVO.of(requireSpace(space.getId()), before.defaultSpaceId());
             });
@@ -194,6 +223,29 @@ public class StorageSettingsService {
 
     private void requireUnchanged(Snapshot expected, Snapshot actual) {
         if (!expected.equals(actual)) { throw StoragePolicy.bad("存储配置已更新，请刷新后重试"); }
+    }
+
+    private List<StorageSpace> selectAllSpaces() {
+        long total = spaceMapper.count();
+        List<StorageSpace> spaces = new java.util.ArrayList<>();
+        for (long offset = 0; offset < total; offset += 1000) {
+            spaces.addAll(spaceMapper.selectPage(offset, 1000));
+        }
+        return List.copyOf(spaces);
+    }
+
+    private void requireUnchangedSpaces(List<StorageSpace> expected) {
+        List<SpaceDestination> expectedDestinations = expected.stream().map(SpaceDestination::of).toList();
+        List<SpaceDestination> currentDestinations = selectAllSpaces().stream().map(SpaceDestination::of).toList();
+        if (!expectedDestinations.equals(currentDestinations)) {
+            throw StoragePolicy.bad("存储空间列表已更新，请刷新后重试");
+        }
+    }
+
+    private record SpaceDestination(Long id, String bucketName, String regionId) {
+        private static SpaceDestination of(StorageSpace space) {
+            return new SpaceDestination(space.getId(), space.getBucketName(), space.getRegionId());
+        }
     }
 
     private void requireSameDestination(StorageSpace expected, StorageSpace actual) {
