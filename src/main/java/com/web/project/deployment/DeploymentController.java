@@ -6,6 +6,8 @@ import com.web.project.common.result.Result;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import java.util.List;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -38,6 +40,22 @@ public class DeploymentController {
         requireSuperAdmin(jwt);
         return Result.success(service.rollback());
     }
+
+    @GetMapping("/history")
+    public Result<List<ReleaseHistoryItem>> history(@AuthenticationPrincipal Jwt jwt) {
+        requireSuperAdmin(jwt);
+        return Result.success(service.history());
+    }
+
+    @PostMapping("/rollback/history")
+    public Result<DeploymentStatus> rollbackToHistory(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestBody HistoryRollbackRequest request) {
+        requireSuperAdmin(jwt);
+        return Result.success(service.rollbackHistorical(request.releaseId()));
+    }
+
+    public record HistoryRollbackRequest(String releaseId) {}
 
     private static void requireSuperAdmin(Jwt jwt) {
         if (jwt == null || !"SYS_USER".equals(jwt.getClaimAsString("accountType"))

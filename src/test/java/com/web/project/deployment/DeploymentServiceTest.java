@@ -146,6 +146,65 @@ class DeploymentServiceTest {
     }
 
     @Test
+    void historyListsOnlyValidatedManifestsAndMarksCurrent(@TempDir Path state) throws Exception {
+        Path archive = Files.createDirectory(state.resolve("history"));
+        String a = "a".repeat(40), b = "b".repeat(40), c = "c".repeat(40), d = "d".repeat(40);
+        Files.writeString(archive.resolve(a + "_" + b + ".env"),
+                "frontend=git-" + a + "\nbackend=git-" + b + "\n");
+        Files.writeString(archive.resolve(c + "_" + d + ".env"),
+                "frontend=git-" + c + "\nbackend=git-" + d + "\n");
+        Files.writeString(state.resolve("current.env"),
+                "frontend=git-" + c + "\nbackend=git-" + d + "\n");
+        Files.writeString(archive.resolve("malicious.env"), "invalid");
+        Files.writeString(archive.resolve(a + "_" + d + ".env"), "frontend=git-" + c + "\nbackend=git-" + d + "\n");
+
+        DeploymentService service = new DeploymentService(
+                new DeploymentProperties(true, "test-token", state.toString()), mapper, redis, client);
+        var items = service.history();
+        assertEquals(2, items.size());
+        assertTrue(items.stream().anyMatch(item -> item.releaseId().equals(c + "_" + d) && item.current()));
+        assertTrue(items.stream().anyMatch(item -> item.releaseId().equals(a + "_" + b) && !item.current()));
+        assertNotNull(items.getFirst().deployedAt());
+        assertThrows(BusinessException.class, () -> service.rollbackHistorical(c + "_" + d));
+        assertThrows(BusinessException.class, () -> service.rollbackHistorical("../current.env"));
+        assertThrows(BusinessException.class, () -> service.rollbackHistorical("f".repeat(40) + "_" + "e".repeat(40)));
+        verifyNoInteractions(redis, client);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void rollbackHistoricalDispatchesWhitelistedReleaseOnly(@TempDir Path state) throws Exception {
+        Path archive = Files.createDirectory(state.resolve("history"));
+        String a = "a".repeat(40), b = "b".repeat(40), c = "c".repeat(40), d = "d".repeat(40);
+        String id = a + "_" + b;
+        Files.writeString(archive.resolve(id + ".env"),
+                "frontend=git-" + a + "\nbackend=git-" + b + "\n");
+        Files.writeString(state.resolve("current.env"),
+                "frontend=git-" + c + "\nbackend=git-" + d + "\n");
+
+        ValueOperations<String, String> values = mock(ValueOperations.class);
+        when(redis.opsForValue()).thenReturn(values);
+        when(values.setIfAbsent("atlas:deploy:dispatch-lock", "1", Duration.ofSeconds(90))).thenReturn(true);
+        HttpResponse<String> latest = mock(HttpResponse.class);
+        when(latest.statusCode()).thenReturn(200);
+        when(latest.body()).thenReturn("{\"workflow_runs\":[]}");
+        HttpResponse<String> accepted = mock(HttpResponse.class);
+        when(accepted.statusCode()).thenReturn(204);
+        when(client.send(any(HttpRequest.class),
+                org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
+                .thenReturn(latest, accepted);
+
+        DeploymentService service = new DeploymentService(
+                new DeploymentProperties(true, "test-token", state.toString()), mapper, redis, client);
+        assertEquals("requested", service.rollbackHistorical(id).state());
+        var req = org.mockito.ArgumentCaptor.forClass(HttpRequest.class);
+        verify(client, times(2)).send(req.capture(),
+                org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any());
+        assertEquals("POST", req.getAllValues().getLast().method());
+        assertTrue(req.getAllValues().getLast().uri().getPath().endsWith("/dispatches"));
+    }
+
+    @Test
     void propertyStringNeverExposesGitHubToken() {
         String info = new DeploymentProperties(true, "sensitive-test-credential", "/var/lib/atlas/releases").toString();
         assertTrue(info.contains("redacted"));
