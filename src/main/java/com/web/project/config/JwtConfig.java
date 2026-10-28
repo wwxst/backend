@@ -1,6 +1,7 @@
 package com.web.project.config;
 
 import com.web.project.admin.mapper.SysUserMapper;
+import com.web.project.auth.session.AuthSessionStore;
 import com.web.project.auth.model.TokenType;
 import com.web.project.config.properties.JwtProperties;
 import org.springframework.beans.factory.ObjectProvider;
@@ -71,9 +72,11 @@ public class JwtConfig {
     public JwtDecoder jwtDecoder(
             SecretKey jwtSecretKey,
             JwtProperties jwtProperties,
-            ObjectProvider<SysUserMapper> sysUserMappers
+            ObjectProvider<SysUserMapper> sysUserMappers,
+            ObjectProvider<AuthSessionStore> sessionStores
     ) {
-        return buildDecoder(jwtSecretKey, jwtProperties, TokenType.ACCESS, sysUserMappers.getIfAvailable());
+        return buildDecoder(jwtSecretKey, jwtProperties, TokenType.ACCESS,
+                sysUserMappers.getIfAvailable(), sessionStores.getIfAvailable());
     }
 
     /**
@@ -87,7 +90,7 @@ public class JwtConfig {
             JwtProperties jwtProperties
     ) {
         return new RefreshTokenDecoder(
-                buildDecoder(jwtSecretKey, jwtProperties, TokenType.REFRESH, null)
+                buildDecoder(jwtSecretKey, jwtProperties, TokenType.REFRESH, null, null)
         );
     }
 
@@ -103,7 +106,8 @@ public class JwtConfig {
             SecretKey jwtSecretKey,
             JwtProperties jwtProperties,
             TokenType tokenType,
-            SysUserMapper sysUserMapper
+            SysUserMapper sysUserMapper,
+            AuthSessionStore sessionStore
     ) {
         NimbusJwtDecoder jwtDecoder = NimbusJwtDecoder
                 .withSecretKey(jwtSecretKey)
@@ -115,6 +119,7 @@ public class JwtConfig {
                 ? new DelegatingOAuth2TokenValidator<>(
                         JwtValidators.createDefaultWithIssuer(jwtProperties.issuer()),
                         new TokenTypeValidator(tokenType),
+                        new AccessSessionValidator(sessionStore),
                         new SysUserTokenValidator(sysUserMapper))
                 : new DelegatingOAuth2TokenValidator<>(
                         JwtValidators.createDefaultWithIssuer(jwtProperties.issuer()),
