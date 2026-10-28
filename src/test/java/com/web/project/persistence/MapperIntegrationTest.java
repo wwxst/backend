@@ -57,15 +57,18 @@ class MapperIntegrationTest {
                 """);
         Long id = jdbcTemplate.queryForObject("SELECT id FROM user_account WHERE user_no = 'status-user'", Long.class);
         UserAccount original = userAccountMapper.selectById(id);
+        int statusWriteCount = 0;
         for (int status : List.of(0, 0, 1, 1)) {
             userAccountService.updateStatus(id, status);
+            statusWriteCount++;
             UserAccount saved = userAccountMapper.selectById(id);
             assertEquals(status, saved.getStatus());
             assertEquals(original.getNickname(), saved.getNickname());
             assertEquals(original.getPhone(), saved.getPhone());
             assertEquals(original.getEmail(), saved.getEmail());
             assertEquals(original.getPassword(), saved.getPassword());
-            assertEquals(original.getPasswordVersion(), saved.getPasswordVersion());
+            // A status change (including re-enabling) permanently invalidates old tokens.
+            assertEquals(original.getPasswordVersion() + statusWriteCount, saved.getPasswordVersion());
             assertEquals(original.getUserNo(), saved.getUserNo());
             assertEquals(original.getAvatar(), saved.getAvatar());
             assertEquals(original.getCreatedAt(), saved.getCreatedAt());
