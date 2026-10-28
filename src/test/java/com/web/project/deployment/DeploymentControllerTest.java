@@ -33,9 +33,13 @@ class DeploymentControllerTest {
             assertEquals(ErrorCode.ACCESS_DENIED, denied.getErrorCode());
             assertThrows(BusinessException.class, () -> controller.status(jwt));
             assertThrows(BusinessException.class, () -> controller.rollback(jwt));
+            assertThrows(BusinessException.class, () -> controller.history(jwt));
+            assertThrows(BusinessException.class, () -> controller.rollbackToHistory(
+                    jwt, new DeploymentController.HistoryRollbackRequest("a".repeat(40) + "_" + "b".repeat(40))));
         }
         assertThrows(BusinessException.class, () -> controller.deploy(null));
         assertThrows(BusinessException.class, () -> controller.rollback(null));
+        assertThrows(BusinessException.class, () -> controller.history(null));
         verifyNoInteractions(service);
 
         when(service.status()).thenReturn(new DeploymentStatus(false, "not_configured", null, null, null, null));
