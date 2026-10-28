@@ -53,6 +53,7 @@ class DeploymentServiceTest {
         when(client.send(any(HttpRequest.class),
                 org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
                 .thenReturn(reply);
+        when(redis.opsForValue()).thenReturn(mock(ValueOperations.class));
         DeploymentService service = new DeploymentService(
                 new DeploymentProperties(true, "test-gh-token", "/var/lib/atlas/releases"), mapper, redis, client);
 
