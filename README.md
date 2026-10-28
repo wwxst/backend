@@ -71,7 +71,7 @@ src/main/resources/mapper/
 
 密钥生成方法及构建验证命令见[后端工程规范](docs/engineering.md)。
 
-本地上传目录用 `UPLOAD_DIR` 指定，默认 `uploads`。接入 OSS 前设置 `STORAGE_ENCRYPTION_KEY` 为 Base64 编码的32字节随机密钥，并长期保留该密钥；更换后已保存的 OSS Secret 不能解密，需要重新保存凭据。通过存储设置页面保存一套凭据、绑定或同步已有 Bucket、选定公共读或公共读写默认空间，再保存全局阿里云存储方式。详细行为见[存储数据库设计](docs/存储数据库设计.md)。
+本地上传目录用 `UPLOAD_DIR` 指定，默认 `uploads`。接入 OSS 前设置 `STORAGE_ENCRYPTION_KEY` 为 Base64 编码的32字节随机密钥，并长期保留该密钥；更换后已保存的 OSS Secret 不能解密，需要重新保存凭据。通过存储设置页面保存一套凭据、绑定或同步已有 Bucket、选定仅允许公共读（PublicRead）的默认空间，再保存全局阿里云存储方式。详细行为见[存储数据库设计](docs/存储数据库设计.md)。
 
 ## 数据库
 

@@ -46,6 +46,7 @@ class StorageSettingsServiceTest {
         when(spaces.selectById(7L)).thenReturn(space);
         when(spaces.count()).thenReturn(1L);
         when(spaces.selectPage(0L, 1000)).thenReturn(List.of(space));
+        when(oss.validateSpace(any(), any())).thenReturn("public-read");
     }
 
     @Test void defaultAndProviderSwitchRequireRemoteValidationBeforeWriting() {
@@ -170,9 +171,29 @@ class StorageSettingsServiceTest {
         when(oss.validateSpace(any(), any())).thenReturn("public-read");
         var dto = new BindStorageSpaceDTO("new-bucket", "cn-hangzhou", null, "public-read-write");
         BusinessException error = assertThrows(BusinessException.class, () -> service.bind(dto));
-        assertEquals("Bucket 实际读写权限与选择的权限不一致", error.getMessage());
+        assertTrue(error.getMessage().contains("禁止公共读写"));
+        verifyNoInteractions(oss);
         verify(spaces, never()).insert(any());
         verify(config, never()).selectStorageConfigForUpdate();
+    }
+
+    @Test void bindingRejectsActualPublicReadWriteAclBeforeAnyWrite() {
+        when(oss.validateSpace(any(), any())).thenReturn("public-read-write");
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> service.bind(new BindStorageSpaceDTO("new-bucket", "cn-hangzhou", null, "public-read")));
+        assertTrue(error.getMessage().contains("禁止匿名写入"));
+        verify(spaces, never()).insert(any());
+        verify(config, never()).updateValue(any(), any());
+    }
+
+    @Test void syncingPublicReadWriteBucketDoesNotPersistAnySpaces() {
+        when(oss.listBuckets(any())).thenReturn(List.of(new OssStorageClient.BucketInfo(
+                "unsafe-bucket", "oss-cn-hangzhou")));
+        when(oss.validateSpace(any(), any())).thenReturn("public-read-write");
+        BusinessException error = assertThrows(BusinessException.class, service::sync);
+        assertTrue(error.getMessage().contains("公共读"));
+        verify(spaces, never()).insert(any());
+        verify(config, never()).updateValue(any(), any());
     }
 
     @Test void bindingWithCandidateCredentialsValidatesBeforeWritingEitherCredentialOrSpace() {
@@ -215,8 +236,8 @@ class StorageSettingsServiceTest {
         verify(spaces).insert(any());
     }
 
-    @Test void bothMatchingPermissionsBindAndCanBecomeDefaultForOss() {
-        for (String permission : List.of("public-read", "public-read-write")) {
+    @Test void publicReadPermissionBindsAndCanBecomeDefaultForOss() {
+        for (String permission : List.of("public-read")) {
             when(oss.validateSpace(any(), any())).thenReturn(permission);
             doAnswer(call -> {
                 StorageSpace inserted = call.getArgument(0);

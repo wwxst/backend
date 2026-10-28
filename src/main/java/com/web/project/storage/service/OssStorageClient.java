@@ -47,8 +47,8 @@ public class OssStorageClient {
             String actualRegion = StoragePolicy.region(client.getBucketLocation(space.getBucketName()));
             if (!space.getRegionId().equals(actualRegion)) { throw StoragePolicy.bad("Bucket 实际地域与选择的地域不一致"); }
             CannedAccessControlList permission = client.getBucketAcl(space.getBucketName()).getCannedACL();
-            if (permission != CannedAccessControlList.PublicRead && permission != CannedAccessControlList.PublicReadWrite) {
-                throw StoragePolicy.bad("头像空间必须使用公共读或公共读写权限");
+            if (permission != CannedAccessControlList.PublicRead) {
+                throw StoragePolicy.bad("头像空间仅允许公共读（PublicRead），禁止公共读写或私有 Bucket");
             }
             return permission.toString();
         });
