@@ -33,6 +33,12 @@ public class DeploymentController {
         return Result.success(service.deploy());
     }
 
+    @PostMapping("/rollback")
+    public Result<DeploymentStatus> rollback(@AuthenticationPrincipal Jwt jwt) {
+        requireSuperAdmin(jwt);
+        return Result.success(service.rollback());
+    }
+
     private static void requireSuperAdmin(Jwt jwt) {
         if (jwt == null || !"SYS_USER".equals(jwt.getClaimAsString("accountType"))
                 || !"1".equals(jwt.getSubject())) {
