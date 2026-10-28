@@ -133,9 +133,12 @@
         WHERE id = #{id}
     </update>
 
+    <!-- Any administrative status write revokes all earlier user access/refresh tokens,
+         including after a disabled account is re-enabled. -->
     <update id="updateStatus">
         UPDATE user_account
-        SET status = #{status}
+        SET status = #{status},
+            password_version = password_version + 1
         WHERE id = #{id}
     </update>
 
