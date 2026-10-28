@@ -11,13 +11,18 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Comparator;
+import java.util.stream.Stream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
@@ -87,6 +92,78 @@ public class DeploymentService {
         return dispatch("deploy");
     }
 
+    /** Only releases recorded on the production server may be chosen. */
+    public List<ReleaseHistoryItem> history() {
+        if (!properties.configured()) {
+            return List.of();
+        }
+        Path directory = Path.of(properties.stateDirectory()).resolve("history");
+        if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) {
+            return List.of();
+        }
+        String currentId = manifestId(Path.of(properties.stateDirectory()).resolve("current.env"));
+        try (Stream<Path> paths = Files.list(directory)) {
+            return paths.filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
+                    .map(path -> readRelease(path, currentId))
+                    .filter(java.util.Objects::nonNull)
+                    .sorted(Comparator.comparing(ReleaseHistoryItem::deployedAt).reversed())
+                    .limit(50)
+                    .toList();
+        } catch (IOException exception) {
+            throw unavailable();
+        }
+    }
+
+    public DeploymentStatus rollbackHistorical(String releaseId) {
+        if (releaseId == null || !releaseId.matches("[0-9a-f]{40}_[0-9a-f]{40}")) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "历史版本编号无效");
+        }
+        boolean allowed = history().stream().anyMatch(item ->
+                item.releaseId().equals(releaseId) && !item.current());
+        if (!allowed) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "该历史版本不可回滚");
+        }
+        return dispatch("rollback-history", releaseId);
+    }
+
+    private ReleaseHistoryItem readRelease(Path path, String currentId) {
+        String filename = path.getFileName().toString();
+        if (!filename.matches("[0-9a-f]{40}_[0-9a-f]{40}\\.env")) {
+            return null;
+        }
+        String releaseId = filename.substring(0, filename.length() - 4);
+        if (!releaseId.equals(manifestId(path))) {
+            return null;
+        }
+        try {
+            return new ReleaseHistoryItem(releaseId,
+                    releaseId.substring(0, 40),
+                    releaseId.substring(41),
+                    Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toInstant(),
+                    releaseId.equals(currentId));
+        } catch (IOException exception) {
+            return null;
+        }
+    }
+
+    private String manifestId(Path path) {
+        try {
+            if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
+                return null;
+            }
+            List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
+            if (lines.size() != 2
+                    || !lines.get(0).matches("frontend=git-[0-9a-f]{40}")
+                    || !lines.get(1).matches("backend=git-[0-9a-f]{40}")) {
+                return null;
+            }
+            return lines.get(0).substring("frontend=git-".length()) + "_"
+                    + lines.get(1).substring("backend=git-".length());
+        } catch (IOException | RuntimeException exception) {
+            return null;
+        }
+    }
+
     public DeploymentStatus rollback() {
         if (!rollbackAvailable()) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "没有可回滚的上一版本");
@@ -112,6 +189,10 @@ public class DeploymentService {
     }
 
     private DeploymentStatus dispatch(String operation) {
+        return dispatch(operation, null);
+    }
+
+    private DeploymentStatus dispatch(String operation, String releaseId) {
         if (!properties.configured()) {
             throw new BusinessException(ErrorCode.BAD_REQUEST,
                     "尚未配置服务器与 GitHub Actions，暂不能自动更新");
@@ -132,8 +213,13 @@ public class DeploymentService {
                 throw new BusinessException(ErrorCode.BAD_REQUEST, "已有更新任务正在运行");
             }
             String requestId = UUID.randomUUID().toString();
-            String body = mapper.writeValueAsString(Map.of(
-                    "ref", "main", "inputs", Map.of("request_id", requestId, "operation", operation)));
+            Map<String, String> inputs = new java.util.HashMap<>();
+            inputs.put("request_id", requestId);
+            inputs.put("operation", operation);
+            if (releaseId != null) {
+                inputs.put("target_release", releaseId);
+            }
+            String body = mapper.writeValueAsString(Map.of("ref", "main", "inputs", inputs));
             HttpResponse<String> response = send(request(
                     URI.create(WORKFLOW + "/dispatches"))
                     .POST(HttpRequest.BodyPublishers.ofString(body))
