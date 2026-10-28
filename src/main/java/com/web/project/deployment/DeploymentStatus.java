@@ -1,6 +1,6 @@
 package com.web.project.deployment;
 
-/** Last GitHub Actions production deployment, not a local process status. */
+/** A specific requested GitHub Actions production run, including recoverable stale states. */
 public record DeploymentStatus(
         boolean configured,
         String state,
@@ -8,10 +8,17 @@ public record DeploymentStatus(
         String runUrl,
         String title,
         String requestId,
-        boolean rollbackAvailable
+        boolean rollbackAvailable,
+        Long runId,
+        boolean recoveryAvailable
 ) {
     public DeploymentStatus(boolean configured, String state, String conclusion,
                             String runUrl, String title, String requestId) {
-        this(configured, state, conclusion, runUrl, title, requestId, false);
+        this(configured, state, conclusion, runUrl, title, requestId, false, null, false);
+    }
+
+    public DeploymentStatus(boolean configured, String state, String conclusion,
+                            String runUrl, String title, String requestId, boolean rollbackAvailable) {
+        this(configured, state, conclusion, runUrl, title, requestId, rollbackAvailable, null, false);
     }
 }

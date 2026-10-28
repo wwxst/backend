@@ -35,6 +35,12 @@ public class DeploymentController {
         return Result.success(service.deploy());
     }
 
+    @PostMapping("/recover")
+    public Result<DeploymentStatus> recover(@AuthenticationPrincipal Jwt jwt) {
+        requireSuperAdmin(jwt);
+        return Result.success(service.recover());
+    }
+
     @PostMapping("/rollback")
     public Result<DeploymentStatus> rollback(@AuthenticationPrincipal Jwt jwt) {
         requireSuperAdmin(jwt);
