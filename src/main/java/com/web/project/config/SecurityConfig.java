@@ -30,7 +30,7 @@ public class SecurityConfig {
 
                 .httpBasic(AbstractHttpConfigurer::disable)
 
-                // HTTP 认证保持无状态；Redis 会话仅用于 Refresh 校验与退出。
+                // HTTP 认证不使用 Servlet Session；Access 和 Refresh 都核对 Redis 登录会话。
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
