@@ -18,6 +18,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.ArrayList;
@@ -34,6 +36,7 @@ class AuthSessionServiceTest {
 
     @Autowired AuthSessionService authSessionService;
     @Autowired RefreshTokenDecoder refreshTokenDecoder;
+    @Autowired JwtDecoder accessTokenDecoder;
     @Autowired StringRedisTemplate redisTemplate;
     @MockitoBean SysUserMapper sysUserMapper;
     @MockitoBean UserAccountMapper userAccountMapper;
@@ -81,6 +84,22 @@ class AuthSessionServiceTest {
         user.setStatus(1);
         user.setPasswordVersion(passwordVersion);
         return user;
+    }
+
+    @Test
+    void logoutImmediatelyRevokesSignedAccessTokens() {
+        when(sysUserMapper.selectById(1L)).thenReturn(activeSysUser(1L));
+        TokenPairVO admin = authSessionService.createSession(AccountType.SYS_USER, 1L, 0L);
+        track(admin);
+        assertNotNull(accessTokenDecoder.decode(admin.accessToken()));
+        authSessionService.logout(AccountType.SYS_USER, sessionIdOf(admin.refreshToken()));
+        assertThrows(JwtException.class, () -> accessTokenDecoder.decode(admin.accessToken()));
+
+        TokenPairVO user = authSessionService.createSession(AccountType.USER, 2L, 0L);
+        track(user);
+        assertNotNull(accessTokenDecoder.decode(user.accessToken()));
+        authSessionService.logout(AccountType.USER, sessionIdOf(user.refreshToken()));
+        assertThrows(JwtException.class, () -> accessTokenDecoder.decode(user.accessToken()));
     }
 
     @Test
