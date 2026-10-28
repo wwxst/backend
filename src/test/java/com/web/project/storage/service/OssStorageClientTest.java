@@ -31,8 +31,8 @@ class OssStorageClientTest {
         }
     }
 
-    @Test void bothPublicPermissionsAreAcceptedAndClientIsAlwaysClosed() {
-        for (var acl : List.of(CannedAccessControlList.PublicRead, CannedAccessControlList.PublicReadWrite)) {
+    @Test void onlyPublicReadBucketIsAcceptedAndSdkClientIsAlwaysClosed() {
+        for (var acl : List.of(CannedAccessControlList.PublicRead)) {
             OSS client = mock(OSS.class);
             when(client.getBucketLocation("avatar-bucket")).thenReturn("oss-cn-hangzhou");
             AccessControlList access = new AccessControlList(); access.setCannedACL(acl);
@@ -43,6 +43,25 @@ class OssStorageClientTest {
                 assertEquals(acl.toString(), service.validateSpace(space, credentials));
                 verify(client).shutdown();
             }
+        }
+    }
+
+    @Test void publicReadWriteBucketIsRejectedAndSdkClientIsClosed() {
+        OSS client = mock(OSS.class);
+        when(client.getBucketLocation("avatar-bucket")).thenReturn("oss-cn-hangzhou");
+        AccessControlList access = new AccessControlList();
+        access.setCannedACL(CannedAccessControlList.PublicReadWrite);
+        when(client.getBucketAcl("avatar-bucket")).thenReturn(access);
+        try (var builders = mockConstruction(OSSClientBuilder.class, (builder, context) ->
+                when(builder.build(anyString(), anyString(), anyString(), any(ClientBuilderConfiguration.class))).thenReturn(client))) {
+            StorageSpace space = new StorageSpace();
+            space.setBucketName("avatar-bucket");
+            space.setRegionId("oss-cn-hangzhou");
+            BusinessException exception = assertThrows(BusinessException.class,
+                    () -> service.validateSpace(space, credentials));
+            assertTrue(exception.getMessage().contains("禁止公共读写"));
+            verify(client).shutdown();
+            verify(client, never()).putObject(anyString(), anyString(), any(java.io.InputStream.class), any(ObjectMetadata.class));
         }
     }
 
