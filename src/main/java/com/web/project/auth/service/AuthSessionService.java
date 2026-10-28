@@ -3,6 +3,7 @@ package com.web.project.auth.service;
 import com.web.project.admin.entity.SysUser;
 import com.web.project.admin.mapper.SysUserMapper;
 import com.web.project.auth.model.AccountType;
+import com.web.project.auth.presence.AuthPresenceStore;
 import com.web.project.auth.session.AuthSessionData;
 import com.web.project.auth.session.AuthSessionStore;
 import com.web.project.auth.vo.AccessTokenVO;
@@ -31,6 +32,7 @@ import java.util.UUID;
 public class AuthSessionService {
 
     private final AuthSessionStore sessionStore;
+    private final AuthPresenceStore presenceStore;
     private final JwtTokenService jwtTokenService;
     private final RefreshTokenDecoder refreshTokenDecoder;
     private final SysUserMapper sysUserMapper;
@@ -78,6 +80,7 @@ public class AuthSessionService {
                 credentialVersion
         );
 
+        presenceStore.touch(accountType, accountId);
         return new TokenPairVO(accessToken, refreshToken);
     }
 
@@ -176,6 +179,7 @@ public class AuthSessionService {
                 credentialVersion
         );
 
+        presenceStore.touch(expectedAccountType, accountId);
         return new AccessTokenVO(accessToken);
     }
 
