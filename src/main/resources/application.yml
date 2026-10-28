@@ -48,8 +48,9 @@ app:
       max-attempts-per-ip: 60
       # 单个账号在窗口内允许的登录请求数。
       max-attempts-per-account: 20
-      # 仅这些直接代理地址可提供 X-Forwarded-For；空列表时使用 TCP 对端地址。
-      trusted-proxy-addresses: []
+      # Only an explicitly listed immediate reverse-proxy IP may supply X-Forwarded-For.
+      # Local development trusts no proxies. Production Compose pins Nginx to 172.30.80.10.
+      trusted-proxy-addresses: ${TRUSTED_PROXY_ADDRESSES:}
   storage:
     encryption-key: ${STORAGE_ENCRYPTION_KEY:}
   file:

@@ -21,11 +21,43 @@ class ClientIpResolverTest {
     }
 
     @Test
-    void usesFirstForwardedAddressFromConfiguredProxy() {
-        HttpServletRequest request = request("10.0.0.8", "203.0.113.10, 10.0.0.7");
+    void usesSingleForwardedAddressFromConfiguredProxy() {
+        HttpServletRequest request = request("10.0.0.8", "203.0.113.10");
         ClientIpResolver resolver = new ClientIpResolver(properties(List.of("10.0.0.8")));
 
         assertEquals("203.0.113.10", resolver.resolve(request));
+    }
+
+    @Test
+    void rejectsInjectedForwardedChainEvenFromTrustedProxy() {
+        ClientIpResolver resolver = new ClientIpResolver(properties(List.of("172.30.80.10")));
+        assertEquals("172.30.80.10", resolver.resolve(
+                request("172.30.80.10", "198.51.100.7, 198.51.100.8")));
+        assertEquals("172.30.80.10", resolver.resolve(
+                request("172.30.80.10", "invalid.example")));
+        assertEquals("172.30.80.10", resolver.resolve(
+                request("172.30.80.10", "999.2.3.4")));
+        assertEquals("172.30.80.10", resolver.resolve(
+                request("172.30.80.10", "198.51.100.7:4000")));
+    }
+
+    @Test
+    void differentExternalClientsGetDifferentRateLimitIdentities() {
+        ClientIpResolver resolver = new ClientIpResolver(properties(List.of("172.30.80.10")));
+        assertEquals("198.51.100.7", resolver.resolve(
+                request("172.30.80.10", "198.51.100.7")));
+        assertEquals("198.51.100.8", resolver.resolve(
+                request("172.30.80.10", "198.51.100.8")));
+        // An untrusted container cannot impersonate the public client's bucket.
+        assertEquals("172.30.80.20", resolver.resolve(
+                request("172.30.80.20", "198.51.100.7")));
+    }
+
+    @Test
+    void acceptsValidIpv6ClientFromTrustedProxy() {
+        ClientIpResolver resolver = new ClientIpResolver(properties(List.of("172.30.80.10")));
+        assertEquals("2001:db8::1", resolver.resolve(
+                request("172.30.80.10", "2001:db8::1")));
     }
 
     @Test

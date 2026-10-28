@@ -10,6 +10,8 @@ import com.web.project.auth.service.JwtTokenService;
 import com.web.project.common.result.PageResult;
 import com.web.project.config.properties.JwtProperties;
 import com.web.project.user.service.UserProfileService;
+import com.web.project.user.entity.UserAccount;
+import com.web.project.user.mapper.UserAccountMapper;
 import com.web.project.user.service.UserAccountService;
 import com.web.project.user.dto.UpdateUserAccountDTO;
 import com.web.project.user.vo.UserAccountListVO;
@@ -52,6 +54,7 @@ class JwtSecurityTest {
     @Autowired JwtProperties properties;
     @MockitoBean SysUserService admins;
     @MockitoBean SysUserMapper sysUserMapper;
+    @MockitoBean UserAccountMapper userAccountMapper;
     @MockitoBean AuthSessionStore authSessionStore;
     @MockitoBean UserProfileService profiles;
     @MockitoBean UserAccountService users;
@@ -67,6 +70,11 @@ class JwtSecurityTest {
                 .thenReturn(new AuthSessionData(1L, null, 0L));
         when(authSessionStore.find(AccountType.USER, "session-user"))
                 .thenReturn(new AuthSessionData(2L, 0L, null));
+        UserAccount activeUser = new UserAccount();
+        activeUser.setId(2L);
+        activeUser.setStatus(1);
+        activeUser.setPasswordVersion(0L);
+        when(userAccountMapper.selectById(2L)).thenReturn(activeUser);
     }
 
     @Test
@@ -168,6 +176,59 @@ class JwtSecurityTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value(40102));
         verifyNoInteractions(admins);
+    }
+
+    @Test
+    void userPasswordChangeImmediatelyRejectsPreviouslyIssuedAccessToken() throws Exception {
+        String access = userAccessToken();
+        when(profiles.getProfile(2L)).thenReturn(new UserInfoVO(
+                2L, "123456", "13800138000", null, "用户", null, 1, LocalDateTime.now()));
+        mvc.perform(get(USER_PATH).header("Authorization", "Bearer " + access))
+                .andExpect(status().isOk());
+
+        // A committed password reset increments password_version in the database.
+        userAccountMapper.selectById(2L).setPasswordVersion(1L);
+        mvc.perform(get(USER_PATH).header("Authorization", "Bearer " + access))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value(40102));
+        verify(profiles, times(1)).getProfile(2L);
+    }
+
+    @Test
+    void disabledOrDeletedUserImmediatelyRejectsPreviouslyIssuedAccessToken() throws Exception {
+        String access = userAccessToken();
+        userAccountMapper.selectById(2L).setStatus(0);
+        mvc.perform(get(USER_PATH).header("Authorization", "Bearer " + access))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value(40102));
+
+        when(userAccountMapper.selectById(2L)).thenReturn(null);
+        mvc.perform(get(USER_PATH).header("Authorization", "Bearer " + access))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value(40102));
+        verifyNoInteractions(profiles);
+    }
+
+    @Test
+    void userAccessTokenRejectsMissingOrInconsistentPasswordVersion() throws Exception {
+        String access = userAccessToken();
+        when(authSessionStore.find(AccountType.USER, "session-user"))
+                .thenReturn(new AuthSessionData(2L, 7L, null));
+        mvc.perform(get(USER_PATH).header("Authorization", "Bearer " + access))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value(40102));
+
+        when(authSessionStore.find(AccountType.USER, "session-user"))
+                .thenReturn(new AuthSessionData(2L, 0L, null));
+        String noVersion = tokens.createAccessToken(AccountType.USER, 2L, "session-user", null);
+        mvc.perform(get(USER_PATH).header("Authorization", "Bearer " + noVersion))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value(40102));
+    }
+
+    @Test
+    void userDatabaseFailureNeverAuthorizesOldAccessToken() throws Exception {
+        when(userAccountMapper.selectById(2L))
+                .thenThrow(new org.springframework.dao.DataAccessResourceFailureException("db unavailable"));
+        assertThrows(org.springframework.dao.DataAccessResourceFailureException.class,
+                () -> mvc.perform(get(USER_PATH)
+                        .header("Authorization", "Bearer " + userAccessToken())));
+        verifyNoInteractions(profiles);
     }
 
     @Test
