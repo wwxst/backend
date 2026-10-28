@@ -368,6 +368,7 @@ public class DeploymentService {
         }
 
         boolean accepted = false;
+        boolean trackingWritten = false;
         try {
             TrackedRun tracked = trackedRequest();
             if (tracked != null) {
@@ -392,6 +393,7 @@ public class DeploymentService {
             // Persist the correlation BEFORE asking GitHub to dispatch.
             // A crash immediately after GitHub accepts must not lose the request ID.
             saveTracking(new TrackedRun(requestId, operation, clock.millis(), null));
+            trackingWritten = true;
             String body = mapper.writeValueAsString(Map.of("ref", "main", "inputs", inputs));
             HttpResponse<String> response = send(request(
                     URI.create(WORKFLOW + "/dispatches"))
@@ -407,8 +409,10 @@ public class DeploymentService {
                     rollbackAvailable(), null, false);
         } finally {
             if (!accepted) {
-                // Revert a rejected submission so it cannot appear perpetually pending.
-                redis.delete(TRACKED_REQUEST);
+                // Never delete a previous valid record when this call was rejected before dispatch.
+                if (trackingWritten) {
+                    redis.delete(TRACKED_REQUEST);
+                }
                 redis.delete(DISPATCH_LOCK);
             }
         }
