@@ -108,6 +108,10 @@ public class StorageSettingsService {
     }
 
     public StorageSpaceVO bind(BindStorageSpaceDTO dto) {
+        // Fail closed even when called directly without controller Bean Validation.
+        if (!"public-read".equals(dto.accessPermission())) {
+            throw StoragePolicy.bad("头像空间仅支持公共读（public-read），禁止匿名写入");
+        }
         StorageSpace space = new StorageSpace();
         space.setBucketName(StoragePolicy.bucket(dto.bucketName()));
         space.setRegionId(StoragePolicy.region(dto.regionId()));
