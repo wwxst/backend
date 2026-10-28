@@ -8,6 +8,8 @@ import com.web.project.auth.util.ContactNormalizer;
 import com.web.project.common.error.ErrorCode;
 import com.web.project.common.exception.BusinessException;
 import com.web.project.user.entity.UserAccount;
+import com.web.project.auth.model.AccountType;
+import com.web.project.auth.presence.AuthPresenceStore;
 import com.web.project.user.mapper.UserAccountMapper;
 import com.web.project.user.service.UserAccountService;
 import com.web.project.user.vo.UserAccountListVO;
@@ -17,6 +19,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * 普通用户管理业务实现类。
@@ -26,6 +29,7 @@ import java.util.List;
 public class UserAccountServiceImpl implements UserAccountService {
 
     private final UserAccountMapper userAccountMapper;
+    private final AuthPresenceStore presenceStore;
 
     @Override
     @Transactional
@@ -50,12 +54,15 @@ public class UserAccountServiceImpl implements UserAccountService {
         } catch (DuplicateKeyException exception) {
             throw new BusinessException(ErrorCode.TARGET_ALREADY_BOUND, exception);
         }
-        return toListVO(userAccountMapper.selectById(id));
+        UserAccount account = userAccountMapper.selectById(id);
+        return toListVO(account, Integer.valueOf(1).equals(account.getStatus())
+                && presenceStore.isOnline(AccountType.USER, account.getId()));
     }
 
-    private UserAccountListVO toListVO(UserAccount account) {
+    private UserAccountListVO toListVO(UserAccount account, boolean online) {
         return new UserAccountListVO(account.getId(), account.getUserNo(), account.getPhone(), account.getEmail(),
-                account.getNickname(), account.getAvatar(), account.getStatus(), account.getCreatedAt(), account.getUpdatedAt());
+                account.getNickname(), account.getAvatar(), account.getStatus(), online,
+                account.getCreatedAt(), account.getUpdatedAt());
     }
 
     /**
@@ -107,9 +114,11 @@ public class UserAccountServiceImpl implements UserAccountService {
                 );
 
         // 列表只返回展示字段，密码与密码版本不进入响应。
-        List<UserAccountListVO> records = userAccounts
-                .stream()
-                .map(this::toListVO)
+        Set<Long> onlineIds = presenceStore.onlineIds(AccountType.USER,
+                userAccounts.stream().map(UserAccount::getId).toList());
+        List<UserAccountListVO> records = userAccounts.stream()
+                .map(account -> toListVO(account, Integer.valueOf(1).equals(account.getStatus())
+                        && onlineIds.contains(account.getId())))
                 .toList();
 
         return new PageResult<>(
