@@ -14,7 +14,7 @@
 
 数据库表 `sys_user` 对应的 Java 类型统一使用 `SysUser` 前缀，包括 Controller、DTO、Service、Mapper 和 VO；接口路径统一使用 `/api/sys-user/**`。`admin` 只作为 JWT scope 权限值保留，不作为系统用户领域类型名。
 
-两类账号共用 `PasswordEncoder`、`JwtTokenService`、`AuthSessionService`、`AuthSessionStore`、Token DTO、有效期配置、JWT 校验、Refresh 和 Logout 流程。JWT 公共 claims 为 `sub`、`accountType`、`sessionId`、`scope`、`tokenType`；普通用户额外携带 `passwordVersion`，系统用户额外携带 `authVersion`；`sub` 保存账号主键。会话 key 为 `auth:session:{accountType}:{sessionId}`。系统用户的每个受保护请求都会读取数据库状态和认证版本，禁用、密码重置后旧 Access Token 立即失效；Refresh 同时核对数据库、JWT 和 Redis 中的版本。资源接口只接受 Access Token，Refresh 接口只接受 Refresh Token，两类账号的会话通过 `accountType` 段相互隔离。
+两类账号共用 `PasswordEncoder`、`JwtTokenService`、`AuthSessionService`、`AuthSessionStore`、Token DTO、有效期配置、JWT 校验、Refresh 和 Logout 流程。JWT 公共 claims 为 `sub`、`accountType`、`sessionId`、`scope`、`tokenType`；普通用户额外携带 `passwordVersion`，系统用户额外携带 `authVersion`；`sub` 保存账号主键。会话 key 为 `auth:session:{accountType}:{sessionId}`。两类账号的每个受保护请求都必须存在有效 Redis 会话，因此 Logout 后旧 Access Token 立即失效；系统用户还在每个请求上读取数据库状态和认证版本，禁用、密码重置后旧 Access Token 也立即失效。Refresh 同时核对数据库、JWT 和 Redis 中的版本。资源接口只接受 Access Token，Refresh 接口只接受 Refresh Token，两类账号的会话通过 `accountType` 段相互隔离。
 
 普通用户 `user_account.id` 由服务端生成 Snowflake ID，数据库使用 `BIGINT UNSIGNED`，Java 使用 `Long`。普通用户资料、管理列表和编辑响应中的 `id` 以十进制 JSON 字符串返回；前端应保留原字符串用于列表标识及编辑、状态切换路径，不转换为 JavaScript `Number`，避免超出安全整数范围后丢失精度。`userNo` 是独立的对外展示号码，不参与登录和鉴权。
 
