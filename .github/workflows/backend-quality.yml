@@ -2,7 +2,7 @@ name: Backend quality
 
 on:
   push:
-    branches: [main]
+    branches: [main, security-ci-hardening-20261028]
   pull_request:
 
 jobs:
