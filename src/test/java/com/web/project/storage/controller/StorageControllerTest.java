@@ -66,7 +66,7 @@ class StorageControllerTest {
 
     @Test void bindingRequiresSupportedAccessPermission() throws Exception {
         for (String field : List.of("", ",\"accessPermission\":null", ",\"accessPermission\":\"\"",
-                ",\"accessPermission\":\"private\"", ",\"accessPermission\":\"invalid\"")) {
+                ",\"accessPermission\":\"private\"", ",\"accessPermission\":\"public-read-write\"", ",\"accessPermission\":\"invalid\"")) {
             mvc.perform(post("/api/sys-user/storage/spaces").contentType(MediaType.APPLICATION_JSON)
                             .content("{\"bucketName\":\"avatar-bucket\",\"regionId\":\"cn-hangzhou\"" + field + "}"))
                     .andExpect(status().isBadRequest());
@@ -74,12 +74,10 @@ class StorageControllerTest {
         verifyNoInteractions(service);
     }
 
-    @Test void bothPublicPermissionsReachBindingService() throws Exception {
-        for (String permission : List.of("public-read", "public-read-write")) {
-            mvc.perform(post("/api/sys-user/storage/spaces").contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"bucketName\":\"avatar-bucket\",\"regionId\":\"cn-hangzhou\",\"accessPermission\":\"" + permission + "\"}"))
-                    .andExpect(status().isOk());
-            verify(service).bind(argThat(dto -> permission.equals(dto.accessPermission())));
-        }
+    @Test void onlyPublicReadPermissionReachesBindingService() throws Exception {
+        mvc.perform(post("/api/sys-user/storage/spaces").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"bucketName\":\"avatar-bucket\",\"regionId\":\"cn-hangzhou\",\"accessPermission\":\"public-read\"}"))
+                .andExpect(status().isOk());
+        verify(service).bind(argThat(dto -> "public-read".equals(dto.accessPermission())));
     }
 }
