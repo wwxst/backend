@@ -5,6 +5,8 @@ import com.web.project.common.exception.BusinessException;
 import com.web.project.user.dto.UpdateUserAccountDTO;
 import com.web.project.user.dto.UserAccountQueryDTO;
 import com.web.project.user.entity.UserAccount;
+import com.web.project.auth.presence.AuthPresenceStore;
+import com.web.project.auth.model.AccountType;
 import com.web.project.user.mapper.UserAccountMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DuplicateKeyException;
@@ -15,7 +17,8 @@ import java.util.List;
 
 class UserAccountServiceImplTest {
     private final UserAccountMapper mapper = mock(UserAccountMapper.class);
-    private final UserAccountServiceImpl service = new UserAccountServiceImpl(mapper);
+    private final AuthPresenceStore presenceStore = mock(AuthPresenceStore.class);
+    private final UserAccountServiceImpl service = new UserAccountServiceImpl(mapper, presenceStore);
 
     @Test
     void missingStatusTargetIsNotReportedAsSuccess() {
@@ -64,10 +67,12 @@ class UserAccountServiceImplTest {
         stored.setStatus(1);
         when(mapper.countByCondition(null, null)).thenReturn(1L);
         when(mapper.selectPageByCondition(null, null, 0L, 10, null)).thenReturn(List.of(stored));
+        when(presenceStore.onlineIds(AccountType.USER, List.of(5L))).thenReturn(java.util.Set.of(5L));
 
         var result = service.getUserPage(new UserAccountQueryDTO());
 
         assertEquals("https://files.example/avatar.png", result.records().getFirst().avatar());
+        assertTrue(result.records().getFirst().online());
     }
 
     @Test

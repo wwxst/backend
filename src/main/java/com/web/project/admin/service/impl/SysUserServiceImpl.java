@@ -5,6 +5,8 @@ import com.web.project.admin.dto.ResetSysUserPasswordDTO;
 import com.web.project.admin.dto.SysUserQueryDTO;
 import com.web.project.admin.dto.UpdateSysUserDTO;
 import com.web.project.admin.entity.SysUser;
+import com.web.project.auth.model.AccountType;
+import com.web.project.auth.presence.AuthPresenceStore;
 import com.web.project.admin.mapper.SysUserMapper;
 import com.web.project.admin.service.SysUserService;
 import com.web.project.storage.entity.StorageFile;
@@ -27,6 +29,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * 系统用户管理业务实现。
@@ -38,6 +41,7 @@ public class SysUserServiceImpl implements SysUserService {
     private static final Logger log = LoggerFactory.getLogger(SysUserServiceImpl.class);
 
     private final SysUserMapper sysUserMapper;
+    private final AuthPresenceStore presenceStore;
     private final PasswordEncoder passwordEncoder;
     private final StorageService storageService;
     private final StorageFileMapper storageFileMapper;
@@ -76,8 +80,11 @@ public class SysUserServiceImpl implements SysUserService {
                 keyword, status, offset, pageSize, queryDTO.getCreatedAtOrder());
 
         // 列表只返回展示字段，密码密文不进入响应。
+        Set<Long> onlineIds = presenceStore.onlineIds(AccountType.SYS_USER,
+                sysUsers.stream().map(SysUser::getId).toList());
         List<SysUserListVO> records = sysUsers.stream()
-                .map(this::toListVO)
+                .map(user -> toListVO(user, Integer.valueOf(1).equals(user.getStatus())
+                        && onlineIds.contains(user.getId())))
                 .toList();
 
         return new PageResult<>(total, page, pageSize, records);
@@ -207,12 +214,21 @@ public class SysUserServiceImpl implements SysUserService {
         if (sysUser == null) {
             throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR);
         }
+        return toListVO(sysUser, Integer.valueOf(1).equals(sysUser.getStatus())
+                && presenceStore.isOnline(AccountType.SYS_USER, sysUser.getId()));
+    }
+
+    private SysUserListVO toListVO(SysUser sysUser, boolean online) {
+        if (sysUser == null) {
+            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR);
+        }
         return new SysUserListVO(
                 sysUser.getId(),
                 sysUser.getUsername(),
                 sysUser.getNickname(),
                 StorageService.url(sysUser.getAvatarFileId()),
                 sysUser.getStatus(),
+                online,
                 sysUser.getCreatedAt(),
                 sysUser.getUpdatedAt());
     }

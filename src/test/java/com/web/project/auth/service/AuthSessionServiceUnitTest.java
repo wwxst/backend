@@ -3,6 +3,7 @@ package com.web.project.auth.service;
 import com.web.project.admin.entity.SysUser;
 import com.web.project.admin.mapper.SysUserMapper;
 import com.web.project.auth.model.AccountType;
+import com.web.project.auth.presence.AuthPresenceStore;
 import com.web.project.auth.session.AuthSessionData;
 import com.web.project.auth.session.AuthSessionStore;
 import com.web.project.common.exception.BusinessException;
@@ -22,11 +23,12 @@ import static org.mockito.Mockito.*;
 class AuthSessionServiceUnitTest {
     private final AuthSessionStore sessions = mock(AuthSessionStore.class);
     private final JwtTokenService tokens = mock(JwtTokenService.class);
+    private final AuthPresenceStore presence = mock(AuthPresenceStore.class);
     private final RefreshTokenDecoder decoder = mock(RefreshTokenDecoder.class);
     private final SysUserMapper sysUsers = mock(SysUserMapper.class);
     private final UserAccountMapper users = mock(UserAccountMapper.class);
     private final AuthSessionService service = new AuthSessionService(
-            sessions, tokens, decoder, sysUsers, users, mock(JwtProperties.class));
+            sessions, presence, tokens, decoder, sysUsers, users, mock(JwtProperties.class));
 
     @Test
     void authenticationVersionChangeRejectsRefreshOnEveryAdminSession() {
