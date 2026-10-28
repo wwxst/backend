@@ -95,6 +95,7 @@ class AuthSessionServiceTest {
         authSessionService.logout(AccountType.SYS_USER, sessionIdOf(admin.refreshToken()));
         assertThrows(JwtException.class, () -> accessTokenDecoder.decode(admin.accessToken()));
 
+        when(userAccountMapper.selectById(2L)).thenReturn(activeUser(2L, 0L));
         TokenPairVO user = authSessionService.createSession(AccountType.USER, 2L, 0L);
         track(user);
         assertNotNull(accessTokenDecoder.decode(user.accessToken()));
@@ -114,6 +115,26 @@ class AuthSessionServiceTest {
 
         AccessTokenVO refreshed = authSessionService.refresh(pair.refreshToken(), AccountType.SYS_USER);
         assertNotNull(refreshed.accessToken());
+    }
+
+    @Test
+    void realRedisUserSessionsRejectAccessImmediatelyAfterPasswordResetDisableAndLogout() {
+        UserAccount user = activeUser(2L, 5L);
+        when(userAccountMapper.selectById(2L)).thenReturn(user);
+        TokenPairVO pair = authSessionService.createSession(AccountType.USER, 2L, 5L);
+        track(pair);
+        assertNotNull(accessTokenDecoder.decode(pair.accessToken()));
+
+        user.setPasswordVersion(6L);
+        assertThrows(JwtException.class, () -> accessTokenDecoder.decode(pair.accessToken()));
+
+        user.setPasswordVersion(5L);
+        user.setStatus(0);
+        assertThrows(JwtException.class, () -> accessTokenDecoder.decode(pair.accessToken()));
+
+        user.setStatus(1);
+        authSessionService.logout(AccountType.USER, sessionIdOf(pair.refreshToken()));
+        assertThrows(JwtException.class, () -> accessTokenDecoder.decode(pair.accessToken()));
     }
 
     @Test
