@@ -25,7 +25,7 @@ class DeploymentServiceTest {
     @Test
     void updaterIsDisabledByDefaultAndNeverCallsGithubOrRedis() {
         DeploymentService service = new DeploymentService(
-                new DeploymentProperties(false, null), mapper, redis, client);
+                new DeploymentProperties(false, null, "/var/lib/atlas/releases"), mapper, redis, client);
         DeploymentStatus status = service.status();
         assertFalse(status.configured());
         assertEquals("not_configured", status.state());
@@ -36,7 +36,7 @@ class DeploymentServiceTest {
     @Test
     void anEmptyTokenCannotEnableUpdater() {
         DeploymentService service = new DeploymentService(
-                new DeploymentProperties(true, " "), mapper, redis, client);
+                new DeploymentProperties(true, " ", "/var/lib/atlas/releases"), mapper, redis, client);
         assertFalse(service.status().configured());
         assertThrows(BusinessException.class, service::deploy);
         verifyNoInteractions(client, redis);
@@ -54,7 +54,7 @@ class DeploymentServiceTest {
                 org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
                 .thenReturn(reply);
         DeploymentService service = new DeploymentService(
-                new DeploymentProperties(true, "test-gh-token"), mapper, redis, client);
+                new DeploymentProperties(true, "test-gh-token", "/var/lib/atlas/releases"), mapper, redis, client);
 
         DeploymentStatus status = service.status();
 
@@ -87,7 +87,7 @@ class DeploymentServiceTest {
                 org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
                 .thenReturn(latest, created);
         DeploymentService service = new DeploymentService(
-                new DeploymentProperties(true, "test-gh-token"), mapper, redis, client);
+                new DeploymentProperties(true, "test-gh-token", "/var/lib/atlas/releases"), mapper, redis, client);
 
         DeploymentStatus started = service.deploy();
         assertEquals("requested", started.state());
@@ -147,7 +147,7 @@ class DeploymentServiceTest {
 
     @Test
     void propertyStringNeverExposesGitHubToken() {
-        String info = new DeploymentProperties(true, "sensitive-test-credential").toString();
+        String info = new DeploymentProperties(true, "sensitive-test-credential", "/var/lib/atlas/releases").toString();
         assertTrue(info.contains("redacted"));
         assertFalse(info.contains("sensitive-test-credential"));
     }
