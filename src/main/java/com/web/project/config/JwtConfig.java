@@ -1,6 +1,7 @@
 package com.web.project.config;
 
 import com.web.project.admin.mapper.SysUserMapper;
+import com.web.project.user.mapper.UserAccountMapper;
 import com.web.project.auth.session.AuthSessionStore;
 import com.web.project.auth.model.TokenType;
 import com.web.project.config.properties.JwtProperties;
@@ -73,10 +74,11 @@ public class JwtConfig {
             SecretKey jwtSecretKey,
             JwtProperties jwtProperties,
             ObjectProvider<SysUserMapper> sysUserMappers,
+            ObjectProvider<UserAccountMapper> userAccounts,
             ObjectProvider<AuthSessionStore> sessionStores
     ) {
         return buildDecoder(jwtSecretKey, jwtProperties, TokenType.ACCESS,
-                sysUserMappers.getIfAvailable(), sessionStores.getIfAvailable());
+                sysUserMappers.getIfAvailable(), userAccounts.getIfAvailable(), sessionStores.getIfAvailable());
     }
 
     /**
@@ -90,7 +92,7 @@ public class JwtConfig {
             JwtProperties jwtProperties
     ) {
         return new RefreshTokenDecoder(
-                buildDecoder(jwtSecretKey, jwtProperties, TokenType.REFRESH, null, null)
+                buildDecoder(jwtSecretKey, jwtProperties, TokenType.REFRESH, null, null, null)
         );
     }
 
@@ -107,6 +109,7 @@ public class JwtConfig {
             JwtProperties jwtProperties,
             TokenType tokenType,
             SysUserMapper sysUserMapper,
+            UserAccountMapper userAccountMapper,
             AuthSessionStore sessionStore
     ) {
         NimbusJwtDecoder jwtDecoder = NimbusJwtDecoder
@@ -120,7 +123,8 @@ public class JwtConfig {
                         JwtValidators.createDefaultWithIssuer(jwtProperties.issuer()),
                         new TokenTypeValidator(tokenType),
                         new AccessSessionValidator(sessionStore),
-                        new SysUserTokenValidator(sysUserMapper))
+                        new SysUserTokenValidator(sysUserMapper),
+                        new UserTokenValidator(userAccountMapper, sessionStore))
                 : new DelegatingOAuth2TokenValidator<>(
                         JwtValidators.createDefaultWithIssuer(jwtProperties.issuer()),
                         new TokenTypeValidator(tokenType));
