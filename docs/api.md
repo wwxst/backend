@@ -69,7 +69,7 @@
 
 - 每次登录或注册生成新的 `sessionId`，会话写入 `auth:session:{accountType}:{sessionId}`，TTL 为 Refresh Token 有效期。
 - Refresh Token 在同一个 Session 生命周期内保持不变，不做轮换。
-- 退出登录删除当前 Session；退出后 Refresh Token 不能继续续期，已签发的 Access Token 在剩余有效期内仍可使用。
+- 退出登录删除当前 Redis Session；已签发的 Access Token 和 Refresh Token 在后续请求中立即失效（已经通过鉴权的并发在途请求不被追溯中断）。所有受保护请求均检查会话是否仍存在；Redis 不可用时不能绕过校验。
 - 修改或重置密码会递增 `password_version`，旧 Refresh Token 因版本不一致无法续期。
 
 ### 超级管理员
