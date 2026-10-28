@@ -131,7 +131,14 @@ public class StorageSettingsService {
         } else {
             bindingCredentials = credentials(before);
         }
+        // Validate the requested permission even for non-HTTP callers and mock SDKs.
+        if (!"public-read".equals(dto.accessPermission())) {
+            throw StoragePolicy.bad("头像存储空间禁止公共读写权限，仅允许 public-read");
+        }
         String actualPermission = oss.validateSpace(space, bindingCredentials);
+        if (!"public-read".equals(actualPermission)) {
+            throw StoragePolicy.bad("Bucket 实际权限必须是公共读（public-read），禁止匿名写入");
+        }
         if (!dto.accessPermission().equals(actualPermission)) {
             throw StoragePolicy.bad("Bucket 实际读写权限与选择的权限不一致");
         }
