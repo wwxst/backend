@@ -4,6 +4,8 @@ import com.web.project.admin.service.SysUserService;
 import com.web.project.admin.entity.SysUser;
 import com.web.project.admin.mapper.SysUserMapper;
 import com.web.project.auth.model.AccountType;
+import com.web.project.auth.session.AuthSessionData;
+import com.web.project.auth.session.AuthSessionStore;
 import com.web.project.auth.service.JwtTokenService;
 import com.web.project.common.result.PageResult;
 import com.web.project.config.properties.JwtProperties;
@@ -50,6 +52,7 @@ class JwtSecurityTest {
     @Autowired JwtProperties properties;
     @MockitoBean SysUserService admins;
     @MockitoBean SysUserMapper sysUserMapper;
+    @MockitoBean AuthSessionStore authSessionStore;
     @MockitoBean UserProfileService profiles;
     @MockitoBean UserAccountService users;
 
@@ -60,6 +63,10 @@ class JwtSecurityTest {
         admin.setStatus(1);
         admin.setAuthVersion(0L);
         when(sysUserMapper.selectById(1L)).thenReturn(admin);
+        when(authSessionStore.find(AccountType.SYS_USER, "session-admin"))
+                .thenReturn(new AuthSessionData(1L, null, 0L));
+        when(authSessionStore.find(AccountType.USER, "session-user"))
+                .thenReturn(new AuthSessionData(2L, 0L, null));
     }
 
     @Test
@@ -117,6 +124,30 @@ class JwtSecurityTest {
 
     private String adminAccessToken() {
         return tokens.createAccessToken(AccountType.SYS_USER, 1L, "session-admin", 0L);
+    }
+
+    @Test
+    void logoutRevokesAlreadyIssuedAccessTokensForBothAccountTypes() throws Exception {
+        String adminAccess = adminAccessToken();
+        String userAccess = userAccessToken();
+        when(admins.getSysUserPage(any())).thenReturn(new PageResult<>(0L, 1, 10, List.of()));
+        when(profiles.getProfile(2L)).thenReturn(new UserInfoVO(
+                2L, "123456", "13800138000", null, "用户", null, 1, LocalDateTime.now()));
+
+        mvc.perform(get(ADMIN_PATH).header("Authorization", "Bearer " + adminAccess))
+                .andExpect(status().isOk());
+        mvc.perform(get(USER_PATH).header("Authorization", "Bearer " + userAccess))
+                .andExpect(status().isOk());
+
+        // Logout deletes the corresponding Redis session. The same signed JWT
+        // must now fail without waiting for its 30-minute expiration.
+        when(authSessionStore.find(AccountType.SYS_USER, "session-admin")).thenReturn(null);
+        when(authSessionStore.find(AccountType.USER, "session-user")).thenReturn(null);
+
+        mvc.perform(get(ADMIN_PATH).header("Authorization", "Bearer " + adminAccess))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get(USER_PATH).header("Authorization", "Bearer " + userAccess))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
