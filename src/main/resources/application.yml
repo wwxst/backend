@@ -55,6 +55,12 @@ app:
   file:
     upload-dir: ${UPLOAD_DIR:uploads}
 
+
+  deployment:
+    # Never enabled until a production server, self-hosted runner and GitHub token exist.
+    enabled: ${ATLAS_DEPLOYMENT_ENABLED:false}
+    github-token: ${ATLAS_DEPLOYMENT_GITHUB_TOKEN:}
+
   jwt:
     # 两类 Token 的签发者；解码时必须匹配
     issuer: web-project
