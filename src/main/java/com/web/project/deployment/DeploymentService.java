@@ -10,6 +10,9 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -64,7 +67,7 @@ public class DeploymentService {
         try {
             JsonNode runs = mapper.readTree(response.body()).path("workflow_runs");
             if (!runs.isArray() || runs.isEmpty()) {
-                return new DeploymentStatus(true, "not_started", null, null, null, null);
+                return new DeploymentStatus(true, "not_started", null, null, null, null, rollbackAvailable());
             }
             JsonNode latest = runs.get(0);
             return new DeploymentStatus(true,
@@ -73,7 +76,7 @@ public class DeploymentService {
                             : latest.path("conclusion").asText(null),
                     latest.path("html_url").asText(null),
                     latest.path("display_title").asText(null),
-                    null);
+                    null, rollbackAvailable());
         } catch (RuntimeException exception) {
             // GitHub error details may contain sensitive request metadata; do not relay.
             throw unavailable();
@@ -81,6 +84,34 @@ public class DeploymentService {
     }
 
     public DeploymentStatus deploy() {
+        return dispatch("deploy");
+    }
+
+    public DeploymentStatus rollback() {
+        if (!rollbackAvailable()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "没有可回滚的上一版本");
+        }
+        return dispatch("rollback");
+    }
+
+    private boolean rollbackAvailable() {
+        try {
+            Path directory = Path.of(properties.stateDirectory());
+            for (String file : List.of("current.env", "previous.env")) {
+                List<String> lines = Files.readAllLines(directory.resolve(file));
+                if (lines.size() != 2
+                        || !lines.get(0).matches("frontend=git-[0-9a-f]{40}")
+                        || !lines.get(1).matches("backend=git-[0-9a-f]{40}")) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (IOException | RuntimeException exception) {
+            return false;
+        }
+    }
+
+    private DeploymentStatus dispatch(String operation) {
         if (!properties.configured()) {
             throw new BusinessException(ErrorCode.BAD_REQUEST,
                     "尚未配置服务器与 GitHub Actions，暂不能自动更新");
@@ -102,7 +133,7 @@ public class DeploymentService {
             }
             String requestId = UUID.randomUUID().toString();
             String body = mapper.writeValueAsString(Map.of(
-                    "ref", "main", "inputs", Map.of("request_id", requestId)));
+                    "ref", "main", "inputs", Map.of("request_id", requestId, "operation", operation)));
             HttpResponse<String> response = send(request(
                     URI.create(WORKFLOW + "/dispatches"))
                     .POST(HttpRequest.BodyPublishers.ofString(body))
@@ -111,7 +142,7 @@ public class DeploymentService {
                 throw unavailable();
             }
             accepted = true;
-            log.info("Production deployment workflow requested; requestId={}", requestId);
+            log.info("Production release workflow requested; operation={}; requestId={}", operation, requestId);
             return new DeploymentStatus(true, "requested", null,
                     "https://github.com/wwxst/atlas-console/actions/workflows/deploy-production.yml",
                     "Atlas Deploy " + requestId, requestId);

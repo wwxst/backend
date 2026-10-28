@@ -10,6 +10,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import org.springframework.data.redis.core.ValueOperations;
 import java.time.Duration;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -22,7 +25,7 @@ class DeploymentServiceTest {
     @Test
     void updaterIsDisabledByDefaultAndNeverCallsGithubOrRedis() {
         DeploymentService service = new DeploymentService(
-                new DeploymentProperties(false, null), mapper, redis, client);
+                new DeploymentProperties(false, null, "/var/lib/atlas/releases"), mapper, redis, client);
         DeploymentStatus status = service.status();
         assertFalse(status.configured());
         assertEquals("not_configured", status.state());
@@ -33,7 +36,7 @@ class DeploymentServiceTest {
     @Test
     void anEmptyTokenCannotEnableUpdater() {
         DeploymentService service = new DeploymentService(
-                new DeploymentProperties(true, " "), mapper, redis, client);
+                new DeploymentProperties(true, " ", "/var/lib/atlas/releases"), mapper, redis, client);
         assertFalse(service.status().configured());
         assertThrows(BusinessException.class, service::deploy);
         verifyNoInteractions(client, redis);
@@ -51,7 +54,7 @@ class DeploymentServiceTest {
                 org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
                 .thenReturn(reply);
         DeploymentService service = new DeploymentService(
-                new DeploymentProperties(true, "test-gh-token"), mapper, redis, client);
+                new DeploymentProperties(true, "test-gh-token", "/var/lib/atlas/releases"), mapper, redis, client);
 
         DeploymentStatus status = service.status();
 
@@ -84,7 +87,7 @@ class DeploymentServiceTest {
                 org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
                 .thenReturn(latest, created);
         DeploymentService service = new DeploymentService(
-                new DeploymentProperties(true, "test-gh-token"), mapper, redis, client);
+                new DeploymentProperties(true, "test-gh-token", "/var/lib/atlas/releases"), mapper, redis, client);
 
         DeploymentStatus started = service.deploy();
         assertEquals("requested", started.state());
@@ -95,8 +98,56 @@ class DeploymentServiceTest {
     }
 
     @Test
+    void rollbackRequiresPreviousReleaseAndIgnoresMalformedManifest(@TempDir Path state) throws Exception {
+        DeploymentService service = new DeploymentService(
+                new DeploymentProperties(true, "test-token", state.toString()), mapper, redis, client);
+        assertThrows(BusinessException.class, service::rollback);
+        verifyNoInteractions(redis, client);
+
+        String valid = "frontend=git-" + "a".repeat(40) + "\n"
+                + "backend=git-" + "b".repeat(40) + "\n";
+        Files.writeString(state.resolve("current.env"), valid);
+        Files.writeString(state.resolve("previous.env"), "invalid content");
+        assertThrows(BusinessException.class, service::rollback);
+        verifyNoInteractions(redis, client);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void rollbackUsesFixedWorkflowWhenValidPreviousReleaseExists(@TempDir Path state) throws Exception {
+        String previous = "frontend=git-" + "a".repeat(40) + "\n"
+                + "backend=git-" + "b".repeat(40) + "\n";
+        Files.writeString(state.resolve("current.env"), previous);
+        Files.writeString(state.resolve("previous.env"), previous);
+
+        ValueOperations<String, String> values = mock(ValueOperations.class);
+        when(redis.opsForValue()).thenReturn(values);
+        when(values.setIfAbsent("atlas:deploy:dispatch-lock", "1", Duration.ofSeconds(90)))
+                .thenReturn(true);
+        HttpResponse<String> latest = mock(HttpResponse.class);
+        when(latest.statusCode()).thenReturn(200);
+        when(latest.body()).thenReturn("{\"workflow_runs\":[]}");
+        HttpResponse<String> accepted = mock(HttpResponse.class);
+        when(accepted.statusCode()).thenReturn(204);
+        when(client.send(any(HttpRequest.class),
+                org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
+                .thenReturn(latest, accepted);
+
+        DeploymentService service = new DeploymentService(
+                new DeploymentProperties(true, "test-token", state.toString()), mapper, redis, client);
+        assertTrue(service.status().rollbackAvailable());
+        reset(client);
+        when(client.send(any(HttpRequest.class),
+                org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
+                .thenReturn(latest, accepted);
+        assertEquals("requested", service.rollback().state());
+        verify(client, times(2)).send(any(HttpRequest.class),
+                org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any());
+    }
+
+    @Test
     void propertyStringNeverExposesGitHubToken() {
-        String info = new DeploymentProperties(true, "sensitive-test-credential").toString();
+        String info = new DeploymentProperties(true, "sensitive-test-credential", "/var/lib/atlas/releases").toString();
         assertTrue(info.contains("redacted"));
         assertFalse(info.contains("sensitive-test-credential"));
     }

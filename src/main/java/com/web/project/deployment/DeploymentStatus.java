@@ -7,6 +7,11 @@ public record DeploymentStatus(
         String conclusion,
         String runUrl,
         String title,
-        String requestId
+        String requestId,
+        boolean rollbackAvailable
 ) {
+    public DeploymentStatus(boolean configured, String state, String conclusion,
+                            String runUrl, String title, String requestId) {
+        this(configured, state, conclusion, runUrl, title, requestId, false);
+    }
 }

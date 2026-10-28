@@ -7,7 +7,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * and a GitHub token scoped to the Atlas Console Actions workflow.
  */
 @ConfigurationProperties(prefix = "app.deployment")
-public record DeploymentProperties(boolean enabled, String githubToken) {
+public record DeploymentProperties(boolean enabled, String githubToken, String stateDirectory) {
+
     public boolean configured() {
         return enabled && githubToken != null && !githubToken.isBlank();
     }
