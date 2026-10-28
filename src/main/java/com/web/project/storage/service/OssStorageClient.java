@@ -47,8 +47,11 @@ public class OssStorageClient {
             String actualRegion = StoragePolicy.region(client.getBucketLocation(space.getBucketName()));
             if (!space.getRegionId().equals(actualRegion)) { throw StoragePolicy.bad("Bucket 实际地域与选择的地域不一致"); }
             CannedAccessControlList permission = client.getBucketAcl(space.getBucketName()).getCannedACL();
-            if (permission != CannedAccessControlList.PublicRead && permission != CannedAccessControlList.PublicReadWrite) {
-                throw StoragePolicy.bad("头像空间必须使用公共读或公共读写权限");
+            // The existing /files/{id} redirect requires anonymous READ access,
+            // but anonymous WRITE must never be enabled for user-controlled avatars.
+            // Private buckets require a separate signed-URL/proxy-read design.
+            if (permission != CannedAccessControlList.PublicRead) {
+                throw StoragePolicy.bad("头像空间仅支持公共读（public-read），禁止公共读写或私有 Bucket");
             }
             return permission.toString();
         });
