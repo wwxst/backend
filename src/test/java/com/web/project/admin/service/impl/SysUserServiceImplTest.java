@@ -7,6 +7,7 @@ import com.web.project.admin.dto.CreateSysUserDTO;
 import com.web.project.admin.dto.ResetSysUserPasswordDTO;
 import com.web.project.admin.dto.UpdateSysUserDTO;
 import com.web.project.admin.entity.SysUser;
+import com.web.project.auth.presence.AuthPresenceStore;
 import com.web.project.admin.mapper.SysUserMapper;
 import com.web.project.storage.service.StorageService;
 import com.web.project.storage.entity.StorageFile;
@@ -44,7 +45,8 @@ class SysUserServiceImplTest {
     private final StorageService storage = mock(StorageService.class);
     private final StorageFileMapper files = mock(StorageFileMapper.class);
     private final TransactionTemplate transactions = mock(TransactionTemplate.class);
-    private final SysUserServiceImpl service = new SysUserServiceImpl(mapper, passwordEncoder, storage, files, transactions);
+    private final AuthPresenceStore presenceStore = mock(AuthPresenceStore.class);
+    private final SysUserServiceImpl service = new SysUserServiceImpl(mapper, presenceStore, passwordEncoder, storage, files, transactions);
     private boolean transactionRunning;
 
     @BeforeEach
