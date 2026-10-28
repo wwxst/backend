@@ -225,8 +225,9 @@ class JwtSecurityTest {
     void userDatabaseFailureNeverAuthorizesOldAccessToken() throws Exception {
         when(userAccountMapper.selectById(2L))
                 .thenThrow(new org.springframework.dao.DataAccessResourceFailureException("db unavailable"));
-        mvc.perform(get(USER_PATH).header("Authorization", "Bearer " + userAccessToken()))
-                .andExpect(status().is5xxServerError());
+        assertThrows(org.springframework.dao.DataAccessResourceFailureException.class,
+                () -> mvc.perform(get(USER_PATH)
+                        .header("Authorization", "Bearer " + userAccessToken())));
         verifyNoInteractions(profiles);
     }
 
