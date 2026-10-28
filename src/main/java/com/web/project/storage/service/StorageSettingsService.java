@@ -108,6 +108,10 @@ public class StorageSettingsService {
     }
 
     public StorageSpaceVO bind(BindStorageSpaceDTO dto) {
+        // Fail before contacting OSS or persisting candidate credentials.
+        if (!"public-read".equals(dto.accessPermission())) {
+            throw StoragePolicy.bad("头像存储空间禁止公共读写权限，仅允许 public-read");
+        }
         StorageSpace space = new StorageSpace();
         space.setBucketName(StoragePolicy.bucket(dto.bucketName()));
         space.setRegionId(StoragePolicy.region(dto.regionId()));
@@ -130,10 +134,6 @@ public class StorageSettingsService {
             encryptedSecret = cipher.encrypt(dto.accessKeySecret());
         } else {
             bindingCredentials = credentials(before);
-        }
-        // Validate the requested permission even for non-HTTP callers and mock SDKs.
-        if (!"public-read".equals(dto.accessPermission())) {
-            throw StoragePolicy.bad("头像存储空间禁止公共读写权限，仅允许 public-read");
         }
         String actualPermission = oss.validateSpace(space, bindingCredentials);
         if (!"public-read".equals(actualPermission)) {
@@ -162,7 +162,18 @@ public class StorageSettingsService {
 
     public int sync() {
         Snapshot before = snapshot();
-        List<OssStorageClient.BucketInfo> buckets = oss.listBuckets(credentials(before));
+        var credentials = credentials(before);
+        List<OssStorageClient.BucketInfo> buckets = oss.listBuckets(credentials);
+        // Reject a sync containing an unsafe Bucket before persisting ANY changes.
+        // The OSS SDK checks actual server-side ACL, not a caller-supplied label.
+        for (var bucket : buckets) {
+            StorageSpace candidate = new StorageSpace();
+            candidate.setBucketName(StoragePolicy.bucket(bucket.bucketName()));
+            candidate.setRegionId(StoragePolicy.region(bucket.regionId()));
+            if (!"public-read".equals(oss.validateSpace(candidate, credentials))) {
+                throw StoragePolicy.bad("同步失败：Bucket 实际权限必须是公共读（public-read）");
+            }
+        }
         return transaction.execute(status -> {
             requireUnchanged(before, lockConfig());
             int synced = 0;
