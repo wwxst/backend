@@ -33,6 +33,11 @@ public record UserAccountListVO(
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {
+    public UserAccountListVO(Long id, String userNo, String phone, String email, String nickname,
+                             String avatar, Integer status, LocalDateTime createdAt, LocalDateTime updatedAt) {
+        this(id, userNo, phone, email, nickname, avatar, status, false, createdAt, updatedAt);
+    }
+
     @Override
     public String toString() {
         return "UserAccountListVO[id=" + id + ", userNo=" + userNo + ", contacts=redacted]";
