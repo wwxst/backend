@@ -904,13 +904,11 @@ class BackendGate:
             self.app.wait(timeout=15)
 
     def run(self):
-        schema = (ROOT / "web_project.sql").read_text(encoding="utf-8")
+        # Create only an empty disposable database. The real Spring Boot test
+        # context must exercise Flyway exactly as a fresh installation does.
         self.sql("CREATE DATABASE " + self.database +
                  " CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci", select_database=False)
         self.created_database = True
-        schema = schema[schema.index("USE web_project;"):]
-        schema = schema.replace("USE web_project;", "USE " + self.database + ";")
-        self.sql(schema, select_database=False)
         self.start_redis()
         print("Private dependencies ready; starting Maven verification", flush=True)
         self.maven("clean", "verify", log_name="verify.log")
