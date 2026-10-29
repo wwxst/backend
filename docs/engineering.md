@@ -90,7 +90,7 @@ $env:JAVA_HOME = 'C:\Users\ww\.jdks\temurin-25.0.4.1'
 
 涉及数据库结构或查询的修改，需要单独在可丢弃的 MySQL 测试库验证；不得将 mock 测试通过当作真实数据库验证。
 
-MySQL 集成测试先用 `web_project.sql` 建立独立测试库，再设置 `ATLAS_MYSQL_TEST_URL` 为该库的 JDBC URL，并使用现有 `DB_USERNAME`、`DB_PASSWORD` 配置测试凭据。只连接可丢弃库，测试会修改配置数据。
+MySQL 集成测试先建立空的、可丢弃的独立数据库，再设置 `ATLAS_MYSQL_TEST_URL` 为该库的 JDBC URL；Spring Boot 测试上下文会通过 Flyway 执行版本迁移。使用现有 `DB_USERNAME`、`DB_PASSWORD` 配置测试凭据。只连接可丢弃库，测试会修改配置数据。
 
 ### 当前工具能力与验收边界
 
