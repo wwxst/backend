@@ -64,7 +64,7 @@ src/main/resources/mapper/
 ## 启动
 
 1. 使用 IntelliJ IDEA 为项目配置的 JDK，具体步骤见[后端工程规范](docs/engineering.md)。
-2. 准备 MySQL 和 Redis。新环境执行 `web_project.sql`，创建账号、配置、空间、文件共5张表，写入本地开发账号 `admin`（密码 `123456`）、4项渠道配置和4项存储配置。已存在数据库跳过建库；建表语句仍要求新表环境。
+2. 准备 MySQL 和 Redis，并创建空的 `web_project` 数据库。应用启动时 Flyway 会执行 `src/main/resources/db/migration/V1__initial_schema.sql`，创建 5 张业务表并写入初始系统账号和配置；新安装不再手动导入 `web_project.sql`。首次对外开放前必须修改默认系统管理员密码。
 3. 数据库连接可通过 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD` 指定；Redis 连接可通过 `REDIS_HOST`、`REDIS_PORT`、`REDIS_DATABASE`、`REDIS_PASSWORD` 指定，默认连接 `localhost:6379` 的 0 号库。
 4. 本地开发可以直接启动，`src/main/resources/application.yml` 已提供本地 JWT 默认密钥；需要替换密钥时，在 IDEA 启动配置或 Maven Runner 中设置 `JWT_SECRET`。
 5. 运行 `WebProjectApplication`，或在 Maven 面板执行 `spring-boot:run`。默认地址为 `http://localhost:8080`。
@@ -75,4 +75,4 @@ src/main/resources/mapper/
 
 ## 数据库
 
-当前项目只面向全新数据库，不维护历史结构和数据迁移。初始化或重建数据库时直接执行 `web_project.sql`。
+数据库结构和初始数据由 Flyway 版本迁移管理，详见[数据库迁移指南](docs/database-migrations.md)。`web_project.sql` 仅保留为旧版手动初始化快照；复用旧数据库前必须先备份、核对 schema，并按指南显式 baseline。
