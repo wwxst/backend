@@ -45,10 +45,6 @@ jobs:
         run: |
           chmod +x ./mvnw
           ./mvnw -B -ntp clean verify
-      - name: Verify including Redis and MySQL integration tests
-        run: |
-          chmod +x ./mvnw
-          ./mvnw -B -ntp clean verify
       - name: Upload coverage results
         if: always()
         uses: actions/upload-artifact@v4
