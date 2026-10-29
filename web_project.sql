@@ -1,3 +1,6 @@
+-- Legacy manual bootstrap snapshot retained for reference and controlled import only.
+-- New installs and future schema changes use src/main/resources/db/migration/V1__initial_schema.sql.
+-- Do not add future schema changes here; add a new, immutable Flyway migration instead.
 /**
   *创建数据库
 **/

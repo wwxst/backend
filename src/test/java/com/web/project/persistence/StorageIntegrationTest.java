@@ -50,6 +50,7 @@ import static org.mockito.Mockito.*;
 @EnabledIfEnvironmentVariable(named = "ATLAS_MYSQL_TEST_URL", matches = "jdbc:mysql:.*")
 @SpringBootTest(properties = {
         "spring.datasource.url=${ATLAS_MYSQL_TEST_URL}",
+        "spring.flyway.enabled=true",
         "app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
         "app.storage.encryption-key=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 })

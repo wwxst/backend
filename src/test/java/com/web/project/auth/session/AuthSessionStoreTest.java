@@ -24,7 +24,10 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * 本机缺少 Redis 时跳过，不把 mock 当作真实 Redis 验收。
  */
-@SpringBootTest(properties = "app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+@SpringBootTest(properties = {
+        "app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+        "spring.flyway.enabled=false"
+})
 class AuthSessionStoreTest {
 
     @Autowired AuthSessionStore sessionStore;

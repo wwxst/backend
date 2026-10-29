@@ -23,7 +23,10 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * 使用本地真实 Redis 验证验证码、发送锁、每日次数和失败次数的 key 与 TTL。
  */
-@SpringBootTest(properties = "app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+@SpringBootTest(properties = {
+        "app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+        "spring.flyway.enabled=false"
+})
 class VerificationCodeStoreTest {
 
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");

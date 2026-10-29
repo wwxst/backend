@@ -40,7 +40,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 // 测试密钥只存在于测试配置，生产配置仍必须显式提供 JWT_SECRET。
-@SpringBootTest(properties = "app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+@SpringBootTest(properties = {
+        "app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+        "spring.flyway.enabled=false"
+})
 @AutoConfigureMockMvc
 class JwtSecurityTest {
     private static final String ADMIN_PATH = "/api/sys-user/sys-users";
