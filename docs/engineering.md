@@ -144,6 +144,6 @@ MySQL Connector/J 使用默认的 `useAffectedRows=false`，UPDATE 返回匹配�
 - Controller 只负责 HTTP 参数、认证上下文和响应转换。
 - Service 负责业务规则和事务边界。
 - Mapper 负责 MyBatis 数据访问，不在 Controller 中直接访问数据库。
-- 当前项目只面向全新数据库，允许直接调整表结构，不维护历史数据和旧结构兼容。
-- `web_project.sql` 是数据库结构和初始数据的唯一事实来源，不新增迁移脚本。
+- 数据库 schema 和初始配置由 Flyway 版本迁移管理；新变更必须添加新的版本脚本，不得修改已发布的迁移。
+- `web_project.sql` 仅保留为旧版手动初始化快照和比对参考，不是新安装或 CI 的 schema 来源。旧数据库接管按 [数据库迁移指南](database-migrations.md) 备份、核验并显式 baseline。
 - 存储支持本地和阿里云 OSS，包含全局配置、已存在 Bucket 的绑定管理和统一系统用户头像文件服务，见[存储数据库设计](存储数据库设计.md)。Java 实体及 Mapper 使用头像文件 ID，接口返回 `/files/{id}` 地址。
