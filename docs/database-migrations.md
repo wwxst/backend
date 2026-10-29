@@ -25,7 +25,7 @@
    ```bash
    mkdir -p /opt/atlas/backups
    docker compose --env-file /opt/atlas/.env -f <runner-workspace>/atlas-console/deploy/compose.yaml \
-     exec -T mysql sh -c 'exec mysqldump -u root -p"$$MYSQL_ROOT_PASSWORD" --single-transaction --routines --triggers web_project' \
+     exec -T mysql sh -c 'exec mysqldump -u root -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --triggers web_project' \
      > "/opt/atlas/backups/web_project-$(date +%F-%H%M%S).sql"
    ```
    将 `<runner-workspace>` 替换为实际工作区路径；不要把备份放在 Docker volume 内或提交到 GitHub。
