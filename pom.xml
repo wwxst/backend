@@ -79,10 +79,10 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Versioned schema migrations. MySQL support is a separate Flyway module. -->
+        <!-- Spring Boot 4 requires its dedicated Flyway starter for auto-configuration. -->
         <dependency>
-            <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-core</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
         </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
