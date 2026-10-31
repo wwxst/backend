@@ -4,7 +4,6 @@ import com.web.project.admin.entity.SysUser;
 import com.web.project.admin.mapper.SysUserMapper;
 import com.web.project.channel.dto.AuthChannelUpdateDTO;
 import com.web.project.channel.mapper.SysConfigMapper;
-import com.web.project.channel.model.AuthChannel;
 import com.web.project.channel.service.AuthChannelService;
 import com.web.project.user.entity.UserAccount;
 import com.web.project.user.mapper.UserAccountMapper;
@@ -25,7 +24,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * 仅连接显式指定、由 Flyway V1 初始化的可丢弃 PostgreSQL 库。
+ * 仅连接显式指定、由 Flyway Flyway 初始化的可丢弃 PostgreSQL 库。
  */
 @EnabledIfEnvironmentVariable(named = "ATLAS_POSTGRES_TEST_URL", matches = "jdbc:postgresql:.*")
 @SpringBootTest(properties = {
@@ -314,30 +313,30 @@ class MapperIntegrationTest {
     }
 
     @Test
-    void repeatedChannelUpdateSucceedsAndInvalidConfigurationIsRejected() {
+    void repeatedLoginSettingsUpdateSucceedsAndInvalidConfigurationIsRejected() {
         for (int attempt = 0; attempt < 2; attempt++) {
-            assertDoesNotThrow(() -> authChannelService.updateChannel(
-                    AuthChannel.PHONE, new AuthChannelUpdateDTO(true, true)));
+            assertDoesNotThrow(() -> authChannelService.updateSettings(
+                    new AuthChannelUpdateDTO(true, true, "aliyun")));
         }
-        assertTrue(authChannelService.getChannels().phoneEnabled());
-        assertEquals(1, sysConfigMapper.updateValue("auth.phone.enabled", "invalid"));
+        assertTrue(authChannelService.getChannels().phoneLoginEnabled());
+        assertEquals(1, sysConfigMapper.updateValue("auth.phone.login.enabled", "invalid"));
         assertThrows(IllegalStateException.class, authChannelService::getChannels);
     }
 
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    void missingSecondConfigRowRollsBackFirstChannelWrite() {
+    void missingLoginSettingRowRejectsUpdateWithoutChangingOtherSettings() {
         assertEquals(1, jdbcTemplate.update("DELETE FROM sys_config WHERE config_key = ?",
-                "auth.phone.code.enabled"));
+                "auth.email.login.enabled"));
         try {
-            assertThrows(IllegalStateException.class, () -> authChannelService.updateChannel(
-                    AuthChannel.PHONE, new AuthChannelUpdateDTO(false, false)));
+            assertThrows(IllegalStateException.class, () -> authChannelService.updateSettings(
+                    new AuthChannelUpdateDTO(false, false, "tencent")));
             assertEquals("true", jdbcTemplate.queryForObject(
                     "SELECT config_value FROM sys_config WHERE config_key = ?",
-                    String.class, "auth.phone.enabled"));
+                    String.class, "auth.phone.login.enabled"));
         } finally {
-            jdbcTemplate.update("INSERT INTO sys_config (config_key, config_value) VALUES (?, ?)",
-                    "auth.phone.code.enabled", "true");
+            jdbcTemplate.update("INSERT INTO sys_config (config_key, config_value, description) VALUES (?, ?, ?)",
+                    "auth.email.login.enabled", "true", "是否允许普通用户使用邮箱登录");
         }
     }
 }
