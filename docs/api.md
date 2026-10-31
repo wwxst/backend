@@ -374,7 +374,7 @@ Content-Type: application/json
 
 服务商配置使用独立接口，敏感密钥写入时通过 AES-GCM 加密；查询响应只返回 `accessKeySecretConfigured` 或 `secretKeyConfigured`，不会回传原始密钥。更新时密钥留空表示保留已保存的密钥。
 
-部署前必须配置 `CREDENTIAL_ENCRYPTION_KEY`（Base64 编码的 32 字节密钥）；未设置时兼容读取 `STORAGE_ENCRYPTION_KEY`。请在所有后端实例间保持密钥一致并妥善备份，密钥丢失或更换后，已保存的短信和 SMTP 密钥将无法解密。
+凭据加密统一使用 `STORAGE_ENCRYPTION_KEY`（Base64 编码的 32 字节密钥）；为兼容新命名，也可在未设置 `STORAGE_ENCRYPTION_KEY` 时使用 `CREDENTIAL_ENCRYPTION_KEY`。若两个变量都设置，始终优先使用 `STORAGE_ENCRYPTION_KEY`，且两者不得配置成不同密钥，以免现有 OSS 存储凭据无法解密。请在所有后端实例间保持密钥一致并妥善备份；密钥丢失或更换后，已保存的存储、短信和 SMTP 凭据将无法解密。
 
 阿里云配置：
 
