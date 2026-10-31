@@ -55,6 +55,11 @@ class LoginProviderSettingsServiceImplTest {
             List<String> keys = invocation.getArgument(0);
             return keys.stream().map(key -> config(key, defaults.get(key))).toList();
         });
+
+        when(mapper.selectByKeysForUpdate(anyList())).thenAnswer(invocation -> {
+            List<String> keys = invocation.getArgument(0);
+            return keys.stream().map(key -> config(key, defaults.get(key))).toList();
+        });
         when(mapper.updateValue(anyString(), anyString())).thenReturn(1);
     }
 
@@ -97,6 +102,14 @@ class LoginProviderSettingsServiceImplTest {
     void blankSecretKeepsPreviouslyEncryptedValue() {
         String saved = cipher.encrypt("existing-secret");
         when(mapper.selectByKeys(anyList())).thenAnswer(invocation -> {
+            List<String> keys = invocation.getArgument(0);
+            return keys.stream().map(key -> config(
+                    key,
+                    key.equals("auth.sms.aliyun.access-key-secret") ? saved : defaults.get(key)
+            )).toList();
+        });
+
+        when(mapper.selectByKeysForUpdate(anyList())).thenAnswer(invocation -> {
             List<String> keys = invocation.getArgument(0);
             return keys.stream().map(key -> config(
                     key,
