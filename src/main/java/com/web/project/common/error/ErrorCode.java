@@ -60,7 +60,13 @@ public enum ErrorCode {
     // 手机号和邮箱两个渠道总开关不能同时关闭。
     CANNOT_DISABLE_ALL_CHANNELS(40018, HttpStatus.BAD_REQUEST, "auth.cannot_disable_all_channels", "手机号和邮箱不能同时关闭"),
 
-    // 当前登录方式尚未配置可用的短信或邮件服务商。\n    LOGIN_PROVIDER_NOT_CONFIGURED(40019, HttpStatus.BAD_REQUEST, "auth.login_provider_not_configured", "当前登录方式尚未完成服务配置"),\n\n    // 验证码服务商发送请求失败。\n    CODE_DELIVERY_FAILED(50201, HttpStatus.BAD_GATEWAY, "auth.code_delivery_failed", "验证码发送失败，请检查服务商配置"),\n\n    // Refresh Token 无效、过期或对应会话已失效。
+    // 当前登录方式尚未配置可用的短信或邮件服务商。
+    LOGIN_PROVIDER_NOT_CONFIGURED(40019, HttpStatus.BAD_REQUEST, "auth.login_provider_not_configured", "当前登录方式尚未完成服务配置"),
+
+    // 验证码服务商发送请求失败。
+    CODE_DELIVERY_FAILED(50201, HttpStatus.BAD_GATEWAY, "auth.code_delivery_failed", "验证码发送失败，请检查服务商配置"),
+
+    // Refresh Token 无效、过期或对应会话已失效。
     REFRESH_TOKEN_INVALID(40104, HttpStatus.UNAUTHORIZED, "auth.refresh_token_invalid", "刷新令牌无效或已过期"),
 
     /**
