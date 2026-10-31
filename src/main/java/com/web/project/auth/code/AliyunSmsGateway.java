@@ -47,7 +47,7 @@ public class AliyunSmsGateway {
     }
 
     private Client clientFor(LoginProviderSettingsService.AliyunSmsConfig settings) throws Exception {
-        String fingerprint = fingerprint(settings.accessKeyId() + "\u0000" + settings.accessKeySecret());
+        String fingerprint = fingerprint(settings.accessKeyId().length() + ":" + settings.accessKeyId() + settings.accessKeySecret());
         Client current = cachedClient;
         if (current != null && fingerprint.equals(cachedFingerprint)) return current;
 
