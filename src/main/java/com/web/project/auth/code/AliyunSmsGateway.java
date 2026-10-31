@@ -11,23 +11,24 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-/** 阿里云短信发送适配器，短信模板变量固定使用 code。 */
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
+
+/** 阿里云短信发送适配器，复用客户端并在凭据轮换后重建。 */
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class AliyunSmsGateway {
 
     private final LoginProviderSettingsService settingsService;
+    private volatile Client cachedClient;
+    private volatile String cachedFingerprint;
 
     public void send(String phone, String code) {
         var settings = settingsService.requireAliyunSmsConfig();
         try {
-            Config config = new Config()
-                    .setAccessKeyId(settings.accessKeyId())
-                    .setAccessKeySecret(settings.accessKeySecret());
-            config.endpoint = "dysmsapi.aliyuncs.com";
-
-            Client client = new Client(config);
+            Client client = clientFor(settings);
             SendSmsRequest request = new SendSmsRequest()
                     .setPhoneNumbers(phone)
                     .setSignName(settings.signName())
@@ -43,5 +44,32 @@ public class AliyunSmsGateway {
             log.warn("Aliyun SMS delivery failed, exception={}", exception.getClass().getSimpleName());
             throw new BusinessException(ErrorCode.CODE_DELIVERY_FAILED);
         }
+    }
+
+    private Client clientFor(LoginProviderSettingsService.AliyunSmsConfig settings) throws Exception {
+        String fingerprint = fingerprint(settings.accessKeyId() + "\u0000" + settings.accessKeySecret());
+        Client current = cachedClient;
+        if (current != null && fingerprint.equals(cachedFingerprint)) return current;
+
+        synchronized (this) {
+            current = cachedClient;
+            if (current != null && fingerprint.equals(cachedFingerprint)) return current;
+
+            Config config = new Config()
+                    .setAccessKeyId(settings.accessKeyId())
+                    .setAccessKeySecret(settings.accessKeySecret())
+                    .setConnectTimeout(5000)
+                    .setReadTimeout(5000);
+            config.endpoint = "dysmsapi.aliyuncs.com";
+            Client created = new Client(config);
+            cachedFingerprint = fingerprint;
+            cachedClient = created;
+            return created;
+        }
+    }
+
+    private String fingerprint(String value) throws Exception {
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+        return HexFormat.of().formatHex(digest);
     }
 }
