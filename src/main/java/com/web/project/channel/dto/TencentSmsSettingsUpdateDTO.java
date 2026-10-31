@@ -10,6 +10,6 @@ public record TencentSmsSettingsUpdateDTO(
         @NotBlank(message = "请输入短信 SDK App ID") @Size(max = 32) String sdkAppId,
         @NotBlank(message = "请输入短信签名") @Size(max = 50) String signName,
         @NotBlank(message = "请输入短信模板 ID") @Size(max = 64) String templateId,
-        @NotBlank(message = "请选择腾讯云地域") @Size(max = 32) String region
+        @NotBlank(message = "请选择腾讯云地域") @Pattern(regexp = "ap-(guangzhou|shanghai|beijing|chengdu|hongkong|singapore)", message = "腾讯云地域不正确") String region
 ) {
 }
