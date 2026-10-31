@@ -3,34 +3,25 @@ package com.web.project.channel.model;
 import com.web.project.auth.model.TargetType;
 
 /**
- * 渠道配置。
+ * 登录基础配置。登录开关只控制登录，不影响注册、密码重置和账号换绑。
  *
- * 对应 sys_config 中 4 个布尔配置：手机号总开关、手机验证码开关、
- * 邮箱总开关、邮箱验证码开关。
- *
- * @param phoneEnabled     手机号注册、登录和绑定是否可用
- * @param phoneCodeEnabled 手机验证码是否可用
- * @param emailEnabled     邮箱注册、登录和绑定是否可用
- * @param emailCodeEnabled 邮箱验证码是否可用
+ * @param phoneLoginEnabled 是否允许手机号登录
+ * @param emailLoginEnabled 是否允许邮箱登录
+ * @param smsProvider       当前选用的短信服务平台
  */
 public record AuthChannelConfig(
-        boolean phoneEnabled,
-        boolean phoneCodeEnabled,
-        boolean emailEnabled,
-        boolean emailCodeEnabled
+        boolean phoneLoginEnabled,
+        boolean emailLoginEnabled,
+        String smsProvider
 ) {
-
-    /**
-     * 指定渠道的总开关是否开启。
-     */
-    public boolean enabled(TargetType targetType) {
-        return targetType == TargetType.PHONE ? phoneEnabled : emailEnabled;
+    public boolean loginEnabled(TargetType targetType) {
+        return targetType == TargetType.PHONE ? phoneLoginEnabled : emailLoginEnabled;
     }
 
-    /**
-     * 指定渠道的验证码开关是否开启。
-     */
-    public boolean codeEnabled(TargetType targetType) {
-        return targetType == TargetType.PHONE ? phoneCodeEnabled : emailCodeEnabled;
+    @Override
+    public String toString() {
+        return "LoginSettings[phoneLoginEnabled=" + phoneLoginEnabled
+                + ", emailLoginEnabled=" + emailLoginEnabled
+                + ", smsProvider=" + smsProvider + "]";
     }
 }

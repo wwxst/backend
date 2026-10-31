@@ -4,10 +4,7 @@ import com.web.project.auth.code.VerificationCodeStore;
 import com.web.project.auth.model.TargetType;
 import com.web.project.auth.model.VerificationScene;
 import com.web.project.channel.dto.AuthChannelUpdateDTO;
-import com.web.project.channel.model.AuthChannel;
 import com.web.project.channel.service.AuthChannelService;
-import com.web.project.common.error.ErrorCode;
-import com.web.project.common.exception.BusinessException;
 import com.web.project.user.entity.UserAccount;
 import com.web.project.user.mapper.UserAccountMapper;
 import org.junit.jupiter.api.Test;
@@ -109,26 +106,28 @@ class AuthConcurrencyIntegrationTest {
     }
 
     @Test
-    void concurrentChannelDisablesCannotDisableBothChannels() throws Exception {
-        channelService.updateChannel(AuthChannel.PHONE, new AuthChannelUpdateDTO(true, true));
-        channelService.updateChannel(AuthChannel.EMAIL, new AuthChannelUpdateDTO(true, true));
+    void concurrentLoginSettingsUpdatesRemainAtomic() throws Exception {
+        channelService.updateSettings(new AuthChannelUpdateDTO(true, true, "aliyun"));
         try {
             List<Boolean> results = race(2, index -> {
-                try {
-                    channelService.updateChannel(index == 0 ? AuthChannel.PHONE : AuthChannel.EMAIL,
-                            new AuthChannelUpdateDTO(false, true));
-                    return true;
-                } catch (BusinessException exception) {
-                    assertEquals(ErrorCode.CANNOT_DISABLE_ALL_CHANNELS, exception.getErrorCode());
-                    return false;
+                if (index == 0) {
+                    channelService.updateSettings(new AuthChannelUpdateDTO(false, true, "aliyun"));
+                } else {
+                    channelService.updateSettings(new AuthChannelUpdateDTO(true, false, "tencent"));
                 }
+                return true;
             });
-            assertEquals(1, results.stream().filter(Boolean::booleanValue).count());
-            var channels = channelService.getChannels();
-            assertNotEquals(channels.phoneEnabled(), channels.emailEnabled());
+            assertEquals(2, results.stream().filter(Boolean::booleanValue).count());
+            var settings = channelService.getChannels();
+            boolean firstUpdate = !settings.phoneLoginEnabled()
+                    && settings.emailLoginEnabled()
+                    && "aliyun".equals(settings.smsProvider());
+            boolean secondUpdate = settings.phoneLoginEnabled()
+                    && !settings.emailLoginEnabled()
+                    && "tencent".equals(settings.smsProvider());
+            assertTrue(firstUpdate || secondUpdate, "concurrent save must not mix fields from separate submissions");
         } finally {
-            channelService.updateChannel(AuthChannel.PHONE, new AuthChannelUpdateDTO(true, true));
-            channelService.updateChannel(AuthChannel.EMAIL, new AuthChannelUpdateDTO(true, true));
+            channelService.updateSettings(new AuthChannelUpdateDTO(true, true, "aliyun"));
         }
     }
 

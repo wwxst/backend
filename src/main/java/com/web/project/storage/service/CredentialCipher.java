@@ -53,6 +53,6 @@ public final class CredentialCipher {
     }
 
     private BusinessException failure(Exception exception) {
-        return new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "存储凭据加解密失败，请检查部署密钥", exception);
+        return new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "系统凭据加解密失败，请检查凭据加密密钥", exception);
     }
 }

@@ -28,7 +28,7 @@ class DatabaseMigrationIntegrationTest {
         flyway.validate();
 
         assertNotNull(flyway.info().current());
-        assertEquals("1", flyway.info().current().getVersion().getVersion());
+        assertEquals("2", flyway.info().current().getVersion().getVersion());
 
         Integer tableCount = jdbc.queryForObject("""
                 SELECT COUNT(*)
@@ -56,7 +56,13 @@ class DatabaseMigrationIntegrationTest {
 
         assertEquals(1, jdbc.queryForObject(
                 "SELECT COUNT(*) FROM sys_user WHERE username = 'admin'", Integer.class));
-        assertEquals(8, jdbc.queryForObject("SELECT COUNT(*) FROM sys_config", Integer.class));
+        assertEquals(28, jdbc.queryForObject("SELECT COUNT(*) FROM sys_config", Integer.class));
+        assertEquals("aliyun", jdbc.queryForObject(
+                "SELECT config_value FROM sys_config WHERE config_key = 'auth.sms.provider'", String.class));
+        assertEquals("true", jdbc.queryForObject(
+                "SELECT config_value FROM sys_config WHERE config_key = 'auth.phone.login.enabled'", String.class));
+        assertEquals("true", jdbc.queryForObject(
+                "SELECT config_value FROM sys_config WHERE config_key = 'auth.email.login.enabled'", String.class));
         Boolean applicationRoleIsSuperuser = jdbc.queryForObject(
                 "SELECT rolsuper FROM pg_roles WHERE rolname = current_user", Boolean.class);
         assertNotNull(applicationRoleIsSuperuser);

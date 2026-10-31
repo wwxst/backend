@@ -6,7 +6,6 @@
 
 <mapper namespace="com.web.project.channel.mapper.SysConfigMapper">
 
-    <!-- 系统配置表的公共查询字段 -->
     <sql id="SysConfigColumns">
         config_key,
         config_value,
@@ -15,9 +14,7 @@
         updated_at
     </sql>
 
-    <!-- 按配置键查询配置项 -->
-    <select id="selectByKeys"
-            resultType="com.web.project.channel.entity.SysConfig">
+    <select id="selectByKeys" resultType="com.web.project.channel.entity.SysConfig">
         SELECT
         <include refid="SysConfigColumns"/>
         FROM sys_config
@@ -28,21 +25,36 @@
         ORDER BY config_key
     </select>
 
-    <!--
-        同一事务锁定两个渠道总开关，串行判断至少一个渠道仍然启用。
-        ORDER BY FIELD 只规定返回顺序；显式 CASE 排序使 PostgreSQL 按稳定顺序返回并加锁。
-    -->
-    <select id="selectMasterSwitchesForUpdate"
-            resultType="com.web.project.channel.entity.SysConfig">
+    <select id="selectByKeysForUpdate" resultType="com.web.project.channel.entity.SysConfig">
         SELECT
         <include refid="SysConfigColumns"/>
         FROM sys_config
-        WHERE config_key IN ('auth.phone.enabled', 'auth.email.enabled')
-        ORDER BY CASE config_key WHEN 'auth.phone.enabled' THEN 1 WHEN 'auth.email.enabled' THEN 2 ELSE 3 END
+        WHERE config_key IN
+        <foreach collection="keys" item="key" open="(" separator="," close=")">
+            #{key}
+        </foreach>
+        ORDER BY config_key
         FOR UPDATE
     </select>
 
-    <!-- 更新单个配置项的值 -->
+    <select id="selectLoginSettingsForUpdate" resultType="com.web.project.channel.entity.SysConfig">
+        SELECT
+        <include refid="SysConfigColumns"/>
+        FROM sys_config
+        WHERE config_key IN (
+            'auth.phone.login.enabled',
+            'auth.email.login.enabled',
+            'auth.sms.provider'
+        )
+        ORDER BY CASE config_key
+            WHEN 'auth.phone.login.enabled' THEN 1
+            WHEN 'auth.email.login.enabled' THEN 2
+            WHEN 'auth.sms.provider' THEN 3
+            ELSE 4
+        END
+        FOR UPDATE
+    </select>
+
     <update id="updateValue">
         UPDATE sys_config
         SET config_value = #{value}

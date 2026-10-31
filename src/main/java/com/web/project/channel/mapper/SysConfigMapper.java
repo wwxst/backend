@@ -12,29 +12,15 @@ import java.util.List;
 @Mapper
 public interface SysConfigMapper {
 
-    /**
-     * 按配置键查询配置项。
-     *
-     * @param keys 配置键集合
-     * @return 匹配的配置项，按配置键升序
-     */
     List<SysConfig> selectByKeys(@Param("keys") List<String> keys);
 
-    /**
-     * 锁定手机号和邮箱两个渠道总开关，供渠道配置更新事务使用。
-     *
-     * 两个渠道更新共用这组行锁；返回顺序不代表 MySQL 的加锁顺序。
-     *
-     * @return 手机号、邮箱两个总开关配置项
-     */
-    List<SysConfig> selectMasterSwitchesForUpdate();
+    /** 按固定顺序锁定指定服务商配置，保证密钥留空时保留的是最新值。 */
+    List<SysConfig> selectByKeysForUpdate(@Param("keys") List<String> keys);
 
     /**
-     * 更新单个配置项的值。
-     *
-     * @param key   配置键
-     * @param value 配置值
-     * @return 受影响行数
+     * 按固定顺序锁定登录开关和短信服务商选择，避免并发更新相互覆盖。
      */
+    List<SysConfig> selectLoginSettingsForUpdate();
+
     int updateValue(@Param("key") String key, @Param("value") String value);
 }

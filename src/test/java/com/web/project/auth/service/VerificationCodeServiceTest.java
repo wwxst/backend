@@ -35,7 +35,7 @@ class VerificationCodeServiceTest {
     @BeforeEach
     void enableAllChannels() {
         when(authChannelService.getChannels())
-                .thenReturn(new AuthChannelConfig(true, true, true, true));
+                .thenReturn(new AuthChannelConfig(true, true, "aliyun"));
         when(codeStore.acquireSendLock(any(), any(), any())).thenReturn(true);
         when(codeStore.incrementDailyCount(any(), any())).thenReturn(1L);
     }
@@ -47,7 +47,7 @@ class VerificationCodeServiceTest {
     @Test
     void disabledChannelRejectsSend() {
         when(authChannelService.getChannels())
-                .thenReturn(new AuthChannelConfig(false, false, true, true));
+                .thenReturn(new AuthChannelConfig(false, true, "aliyun"));
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
@@ -59,17 +59,13 @@ class VerificationCodeServiceTest {
     }
 
     @Test
-    void disabledCodeFunctionRejectsSend() {
+    void registrationCodeCanBeSentWhenPhoneLoginIsDisabled() {
         when(authChannelService.getChannels())
-                .thenReturn(new AuthChannelConfig(true, false, true, true));
+                .thenReturn(new AuthChannelConfig(false, true, "aliyun"));
+        when(userAccountMapper.selectByPhone("13800138000")).thenReturn(null);
 
-        BusinessException exception = assertThrows(
-                BusinessException.class,
-                () -> service.send(dto(VerificationScene.LOGIN, "13800138000"), null)
-        );
-
-        assertEquals(ErrorCode.CODE_FUNCTION_DISABLED, exception.getErrorCode());
-        verifyNoInteractions(codeStore);
+        assertDoesNotThrow(() -> service.send(dto(VerificationScene.REGISTER, "13800138000"), null));
+        verify(codeSender).send(eq(TargetType.PHONE), eq("13800138000"), anyString());
     }
 
     @Test
@@ -199,35 +195,29 @@ class VerificationCodeServiceTest {
     }
 
     @Test
-    void disabledChannelRejectsPreviouslyIssuedCode() {
+    void disablingPhoneLoginDoesNotBlockRegistrationCodeVerification() {
         when(authChannelService.getChannels())
-                .thenReturn(new AuthChannelConfig(false, false, true, true));
+                .thenReturn(new AuthChannelConfig(false, true, "aliyun"));
+        when(codeStore.consumeCode(VerificationScene.REGISTER, TargetType.PHONE, "13800138000", "123456"))
+                .thenReturn(true);
 
-        BusinessException exception = assertThrows(
-                BusinessException.class,
-                () -> service.verify(
-                        VerificationScene.REGISTER, TargetType.PHONE, "13800138000", "123456"
-                )
-        );
-
-        assertEquals(ErrorCode.AUTH_CHANNEL_DISABLED, exception.getErrorCode());
-        verify(codeStore, never()).consumeCode(any(), any(), any(), any());
+        assertDoesNotThrow(() -> service.verify(
+                VerificationScene.REGISTER, TargetType.PHONE, "13800138000", "123456"
+        ));
+        verify(codeStore).consumeCode(VerificationScene.REGISTER, TargetType.PHONE, "13800138000", "123456");
     }
 
     @Test
-    void disabledCodeFunctionRejectsPreviouslyIssuedCode() {
+    void loginCodeVerificationUsesTheSinglePhoneLoginSwitch() {
         when(authChannelService.getChannels())
-                .thenReturn(new AuthChannelConfig(true, false, true, true));
+                .thenReturn(new AuthChannelConfig(true, false, "aliyun"));
+        when(codeStore.consumeCode(VerificationScene.LOGIN, TargetType.PHONE, "13800138000", "123456"))
+                .thenReturn(true);
 
-        BusinessException exception = assertThrows(
-                BusinessException.class,
-                () -> service.verify(
-                        VerificationScene.LOGIN, TargetType.PHONE, "13800138000", "123456"
-                )
-        );
-
-        assertEquals(ErrorCode.CODE_FUNCTION_DISABLED, exception.getErrorCode());
-        verify(codeStore, never()).consumeCode(any(), any(), any(), any());
+        assertDoesNotThrow(() -> service.verify(
+                VerificationScene.LOGIN, TargetType.PHONE, "13800138000", "123456"
+        ));
+        verify(codeStore).consumeCode(VerificationScene.LOGIN, TargetType.PHONE, "13800138000", "123456");
     }
 
     @Test
