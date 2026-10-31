@@ -90,12 +90,6 @@ public class UserAuthServiceImpl implements UserAuthService {
                 registerDTO.target()
         );
 
-        AuthChannelConfig channels = authChannelService.getChannels();
-
-        if (!channels.enabled(targetType)) {
-            throw new BusinessException(ErrorCode.AUTH_CHANNEL_DISABLED);
-        }
-
         if (findAccount(targetType, target) != null) {
             throw new BusinessException(ErrorCode.TARGET_ALREADY_REGISTERED);
         }
@@ -165,7 +159,7 @@ public class UserAuthServiceImpl implements UserAuthService {
 
         AuthChannelConfig channels = authChannelService.getChannels();
 
-        if (!channels.enabled(targetType)) {
+        if (!channels.loginEnabled(targetType)) {
             throw new BusinessException(ErrorCode.AUTH_CHANNEL_DISABLED);
         }
 
@@ -191,10 +185,6 @@ public class UserAuthServiceImpl implements UserAuthService {
                 throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
             }
         } else {
-            if (!channels.codeEnabled(targetType)) {
-                throw new BusinessException(ErrorCode.CODE_FUNCTION_DISABLED);
-            }
-
             verificationCodeService.verify(
                     VerificationScene.LOGIN,
                     targetType,
@@ -234,12 +224,6 @@ public class UserAuthServiceImpl implements UserAuthService {
                 targetType,
                 resetPasswordDTO.target()
         );
-
-        AuthChannelConfig channels = authChannelService.getChannels();
-
-        if (!channels.enabled(targetType)) {
-            throw new BusinessException(ErrorCode.AUTH_CHANNEL_DISABLED);
-        }
 
         UserAccount account = findAccount(targetType, target);
 
