@@ -20,6 +20,22 @@ public class SmtpCodeSender {
 
     private final LoginProviderSettingsService settingsService;
 
+    static Properties mailProperties(String security) {
+        Properties properties = new Properties();
+        boolean ssl = "SSL".equals(security);
+        boolean starttls = "STARTTLS".equals(security);
+        properties.setProperty("mail.smtp.auth", "true");
+        properties.setProperty("mail.smtp.connectiontimeout", "5000");
+        properties.setProperty("mail.smtp.timeout", "5000");
+        properties.setProperty("mail.smtp.writetimeout", "5000");
+        // JavaMail reads these with Properties.getProperty(); Boolean objects are ignored.
+        properties.setProperty("mail.smtp.ssl.enable", Boolean.toString(ssl));
+        properties.setProperty("mail.smtp.starttls.enable", Boolean.toString(starttls));
+        properties.setProperty("mail.smtp.starttls.required", Boolean.toString(starttls));
+        properties.setProperty("mail.smtp.ssl.checkserveridentity", Boolean.toString(ssl || starttls));
+        return properties;
+    }
+
     public void send(String address, String code) {
         var settings = settingsService.requireEmailSmtpConfig();
         try {
@@ -31,14 +47,7 @@ public class SmtpCodeSender {
             sender.setPassword(settings.password());
             sender.setDefaultEncoding("UTF-8");
 
-            Properties properties = sender.getJavaMailProperties();
-            properties.put("mail.smtp.auth", "true");
-            properties.put("mail.smtp.connectiontimeout", "5000");
-            properties.put("mail.smtp.timeout", "5000");
-            properties.put("mail.smtp.writetimeout", "5000");
-            properties.put("mail.smtp.ssl.enable", "SSL".equals(settings.security()));
-            properties.put("mail.smtp.starttls.enable", "STARTTLS".equals(settings.security()));
-            properties.put("mail.smtp.starttls.required", "STARTTLS".equals(settings.security()));
+            sender.getJavaMailProperties().putAll(mailProperties(settings.security()));
 
             MimeMessage message = sender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
