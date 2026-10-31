@@ -1,6 +1,7 @@
 package com.web.project.channel.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /** 腾讯云短信服务配置更新参数；密钥留空时保留已保存的密钥。 */
