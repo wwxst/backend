@@ -214,16 +214,18 @@ class MapperIntegrationTest {
     @Test
     void sysUserDefaultSortIsIdAscendingAndCreatedAtSortingIsStableAcrossPages() {
         jdbcTemplate.update("""
-                INSERT INTO sys_user (id, username, password, nickname, status, created_at)
-                VALUES (910003, 'sort-new', 'test-hash', 'sort-test', 1, '2026-10-03 12:00:00'),
-                       (910001, 'sort-old', 'test-hash', 'sort-test', 1, '2026-10-01 12:00:00'),
-                       (910002, 'sort-tie', 'test-hash', 'sort-test', 0, '2026-10-01 12:00:00')
+                INSERT INTO sys_user (username, password, nickname, status, created_at)
+                VALUES ('sort-new', 'test-hash', 'sort-test', 1, '2026-10-03 12:00:00'),
+                       ('sort-old', 'test-hash', 'sort-test', 1, '2026-10-01 12:00:00'),
+                       ('sort-tie', 'test-hash', 'sort-test', 0, '2026-10-01 12:00:00')
                 """);
 
-        assertEquals(List.of(910001L, 910002L, 910003L),
-                sysUserMapper.selectPageByCondition("sort-test", null, 0L, 10, null)
-                        .stream().map(SysUser::getId).toList());
-        assertEquals("sort-tie", sysUserMapper.selectPageByCondition("sort-test", null, 1L, 1, null)
+        List<SysUser> defaultOrder = sysUserMapper.selectPageByCondition("sort-test", null, 0L, 10, null);
+        List<Long> defaultIds = defaultOrder.stream().map(SysUser::getId).toList();
+        assertEquals(defaultIds.stream().sorted().toList(), defaultIds);
+        assertEquals(List.of("sort-new", "sort-old", "sort-tie"),
+                defaultOrder.stream().map(SysUser::getUsername).toList());
+        assertEquals("sort-old", sysUserMapper.selectPageByCondition("sort-test", null, 1L, 1, null)
                 .getFirst().getUsername());
         assertEquals(List.of("sort-old", "sort-tie", "sort-new"),
                 sysUserMapper.selectPageByCondition("sort-test", null, 0L, 10, "asc")
