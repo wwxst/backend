@@ -3,9 +3,9 @@ package com.web.project.auth.code;
 import com.tencentcloudapi.common.Credential;
 import com.tencentcloudapi.common.profile.ClientProfile;
 import com.tencentcloudapi.common.profile.HttpProfile;
-import com.tencentcloudapi.sms.v20210111.SmsClient;
-import com.tencentcloudapi.sms.v20210111.models.SendSmsRequest;
-import com.tencentcloudapi.sms.v20210111.models.SendSmsResponse;
+import com.tencentcloudapi.sms.v20190711.SmsClient;
+import com.tencentcloudapi.sms.v20190711.models.SendSmsRequest;
+import com.tencentcloudapi.sms.v20190711.models.SendSmsResponse;
 import com.web.project.channel.service.LoginProviderSettingsService;
 import com.web.project.common.error.ErrorCode;
 import com.web.project.common.exception.BusinessException;
@@ -39,9 +39,9 @@ public class TencentSmsGateway {
             );
 
             SendSmsRequest request = new SendSmsRequest();
-            request.setSmsSdkAppId(settings.sdkAppId());
-            request.setSignName(settings.signName());
-            request.setTemplateId(settings.templateId());
+            request.setSmsSdkAppid(settings.sdkAppId());
+            request.setSign(settings.signName());
+            request.setTemplateID(settings.templateId());
             request.setTemplateParamSet(new String[]{code});
             request.setPhoneNumberSet(new String[]{"+86" + phone});
 
