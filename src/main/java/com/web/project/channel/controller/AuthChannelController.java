@@ -28,8 +28,8 @@ public class AuthChannelController {
     }
 
     @PutMapping
-    public Result<Void> updateSettings(@Valid @RequestBody AuthChannelUpdateDTO updateDTO) {
+    public Result<AuthChannelConfig> updateSettings(@Valid @RequestBody AuthChannelUpdateDTO updateDTO) {
         authChannelService.updateSettings(updateDTO);
-        return Result.success();
+        return Result.success(authChannelService.getChannels());
     }
 }
