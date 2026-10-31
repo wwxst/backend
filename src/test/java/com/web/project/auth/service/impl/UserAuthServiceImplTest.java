@@ -471,7 +471,7 @@ class UserAuthServiceImplTest {
                 ))));
         verifyNoInteractions(authSessionService);
     }
-    
+
     private static DuplicateKeyException postgresUniqueViolation(String constraint) {
         ServerErrorMessage error = new ServerErrorMessage(
                 "SERROR\0VERROR\0C23505\0MVerletzung der eindeutigen Beschränkung\0n" + constraint + "\0"
