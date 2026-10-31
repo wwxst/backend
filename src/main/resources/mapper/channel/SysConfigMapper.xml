@@ -25,6 +25,18 @@
         ORDER BY config_key
     </select>
 
+    <select id="selectByKeysForUpdate" resultType="com.web.project.channel.entity.SysConfig">
+        SELECT
+        <include refid="SysConfigColumns"/>
+        FROM sys_config
+        WHERE config_key IN
+        <foreach collection="keys" item="key" open="(" separator="," close=")">
+            #{key}
+        </foreach>
+        ORDER BY config_key
+        FOR UPDATE
+    </select>
+
     <select id="selectLoginSettingsForUpdate" resultType="com.web.project.channel.entity.SysConfig">
         SELECT
         <include refid="SysConfigColumns"/>
