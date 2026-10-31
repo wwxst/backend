@@ -25,11 +25,11 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * 仅连接显式指定、按 web_project.sql 初始化的可丢弃 MySQL 库。
+ * 仅连接显式指定、由 Flyway V1 初始化的可丢弃 PostgreSQL 库。
  */
-@EnabledIfEnvironmentVariable(named = "ATLAS_MYSQL_TEST_URL", matches = "jdbc:mysql:.*")
+@EnabledIfEnvironmentVariable(named = "ATLAS_POSTGRES_TEST_URL", matches = "jdbc:postgresql:.*")
 @SpringBootTest(properties = {
-        "spring.datasource.url=${ATLAS_MYSQL_TEST_URL}",
+        "spring.datasource.url=${ATLAS_POSTGRES_TEST_URL}",
         "spring.flyway.enabled=true",
         "app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 })
@@ -48,6 +48,26 @@ class MapperIntegrationTest {
     private JdbcTemplate jdbcTemplate;
     @Autowired
     private UserAccountService userAccountService;
+
+    @Test
+    void userNoCollisionDoesNotAbortPostgresTransaction() {
+        UserAccount existing = new UserAccount();
+        existing.setId(1010L);
+        existing.setUserNo("user-no-collision");
+        assertEquals(1, userAccountMapper.insert(existing));
+
+        UserAccount collision = new UserAccount();
+        collision.setId(1011L);
+        collision.setUserNo("user-no-collision");
+        assertEquals(0, userAccountMapper.insert(collision));
+
+        UserAccount next = new UserAccount();
+        next.setId(1012L);
+        next.setUserNo("after-user-no-collision");
+        assertEquals(1, userAccountMapper.insert(next));
+        assertEquals(2L, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM user_account WHERE id IN (1010, 1011, 1012)", Long.class));
+    }
 
     @Test
     void enableDisableAndRepeatedStatusWritesPreserveOtherAccountFields() {
@@ -111,6 +131,7 @@ class MapperIntegrationTest {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void adminContactConflictsAreBusinessErrorsAndDoNotPartiallyUpdate() {
         jdbcTemplate.update("""
                 INSERT INTO user_account (id, user_no, phone, email, nickname)
@@ -202,10 +223,12 @@ class MapperIntegrationTest {
     void sysUserListExcludesPasswordWhileCredentialLookupRetainsIt() {
         SysUser credentials = sysUserMapper.selectByUsername("admin");
         assertNotNull(credentials.getPassword());
+        assertEquals(credentials.getId(), sysUserMapper.selectByUsername("ADMIN").getId(),
+                "Username lookup preserves the previous case-insensitive database behavior");
         assertEquals(1L, credentials.getId());
         assertEquals(0L, credentials.getAuthVersion());
         assertEquals(credentials.getId(), sysUserMapper.selectById(credentials.getId()).getId());
-        assertEquals(1L, sysUserMapper.countByCondition("admin", 1));
+        assertEquals(1L, sysUserMapper.countByCondition("ADMIN", 1));
         SysUser listed = sysUserMapper.selectPageByCondition("admin", 1, 0L, 10, null).getFirst();
         assertEquals(credentials.getId(), listed.getId());
         assertNull(listed.getPassword());
