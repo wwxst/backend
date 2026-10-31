@@ -62,7 +62,7 @@ app:
       # Local development trusts no proxies. Production Compose pins Nginx to 172.30.80.10.
       trusted-proxy-addresses: ${TRUSTED_PROXY_ADDRESSES:}
   storage:
-    encryption-key: ${STORAGE_ENCRYPTION_KEY:}
+    encryption-key: ${CREDENTIAL_ENCRYPTION_KEY:${STORAGE_ENCRYPTION_KEY:}}
   file:
     upload-dir: ${UPLOAD_DIR:uploads}
 
