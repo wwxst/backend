@@ -78,31 +78,40 @@
 
 系统用户当前没有修改密码接口，因此不为 `sys_user` 增加 `password_version`。Refresh 时只检查账号存在且状态正常。
 
-## 3. 渠道配置
+## 3. 登录基础配置与服务商配置
 
-在 `sys_config` 保存 4 个布尔配置：
+`sys_config` 保存登录基础配置：
 
 | key | 说明 |
 |-----|------|
-| `auth.phone.enabled` | 手机号注册、登录和绑定是否可用 |
-| `auth.phone.code.enabled` | 手机验证码是否可用 |
-| `auth.email.enabled` | 邮箱注册、登录和绑定是否可用 |
-| `auth.email.code.enabled` | 邮箱验证码是否可用 |
+| `auth.phone.login.enabled` | 是否允许普通用户使用手机号登录 |
+| `auth.email.login.enabled` | 是否允许普通用户使用邮箱登录 |
+| `auth.sms.provider` | 当前短信平台：`aliyun` 或 `tencent` |
+
+旧的 `auth.phone.enabled`、`auth.email.enabled` 和验证码开关记录保留用于迁移回滚兼容，不再作为新登录流程的判断依据。
+
+服务商配置独立保存：
+- 阿里云短信：AccessKey ID、加密后的 AccessKey Secret、短信签名、模板 Code；
+- 腾讯云短信：SecretId、加密后的 SecretKey、SDK App ID、短信签名、模板 ID、地域；
+- 邮箱 SMTP：服务器、端口、用户名、加密后的密码/授权码、发件地址、发件人名称和加密方式。
 
 规则：
-
-- 渠道总开关关闭时，该渠道所有普通用户认证能力不可用；
-- 验证码开关关闭时，只禁止验证码能力，密码登录仍可使用；
-- 手机和邮箱总开关不能同时关闭；
-- 修改配置时在一个数据库事务中按固定顺序使用 `SELECT ... FOR UPDATE` 锁定手机号、邮箱两个总开关，再校验和更新；
-- 本轮直接读取 MySQL，不增加配置缓存。
+- 手机登录和邮箱登录各自控制密码登录与验证码登录；
+- 登录开关只限制 `LOGIN` 场景，不影响注册、重置密码、旧/新联系方式换绑；
+- 两个登录开关允许同时关闭；
+- 手机验证码由所选短信平台发送，邮箱验证码统一走 SMTP；
+- 服务商密钥使用 AES-GCM 加密后保存，查询只返回是否已配置；更新时密钥留空表示保留原值；
+- 登录基础配置在一个数据库事务中按固定顺序使用 `SELECT ... FOR UPDATE` 锁定并更新三个配置项。
 
 管理端接口：
 
 | 方法 | 路径 | 权限 | 说明 |
 |------|------|------|------|
-| GET | `/api/sys-user/auth-channels` | `SCOPE_admin` | 查询渠道配置 |
-| PUT | `/api/sys-user/auth-channels/{channel}` | `SCOPE_admin` | 修改 `phone` 或 `email` 配置 |
+| GET | `/api/sys-user/login-settings` | `SCOPE_admin` | 查询手机/邮箱登录开关和短信平台 |
+| PUT | `/api/sys-user/login-settings` | `SCOPE_admin` | 更新两项登录开关和短信平台 |
+| GET/PUT | `/api/sys-user/login-providers/sms/aliyun` | `SCOPE_admin` | 查询/更新阿里云短信配置 |
+| GET/PUT | `/api/sys-user/login-providers/sms/tencent` | `SCOPE_admin` | 查询/更新腾讯云短信配置 |
+| GET/PUT | `/api/sys-user/login-providers/email` | `SCOPE_admin` | 查询/更新 SMTP 邮件配置 |
 
 ## 4. 验证码
 
@@ -126,13 +135,13 @@
 ### 4.2 发送流程
 
 1. 校验请求字段并规范化联系方式。
-2. 校验渠道总开关、验证码开关和场景资格。
+2. 仅在 LOGIN 场景校验对应登录开关，然后校验场景资格。
 3. 使用 `SET ... NX EX 60` 获取发送锁；获取失败时返回 `CODE_SEND_TOO_FREQUENT`。
 4. 使用 `INCR` 增加每日计数；首次增加时设置到当日结束的 TTL，返回值超过 10 时删除本次发送锁并返回 `CODE_SEND_LIMIT_EXCEEDED`。
 5. 生成 6 位数字验证码并写入验证码 key，TTL 为 5 分钟。
 6. 调用 `CodeSender` 发送。发送失败时返回服务器错误，Redis key 等待 TTL 自动过期，不执行补偿删除。
 
-每日计数按 Asia/Shanghai 自然日计算，TTL 设置到当天结束。当前 `CodeSender` 可以是开发环境打桩实现，但不得在生产日志中打印验证码。
+每日计数按 Asia/Shanghai 自然日计算，TTL 设置到当天结束。生产环境由 `ConfiguredCodeSender` 根据所选服务商发送；不得在生产日志中打印验证码。
 
 这里不实现发送额度预留、`sendId`、补偿脚本或 Redis Cluster 适配。少量发送失败仍占用一次每日额度，是本轮接受的取舍。
 
@@ -377,14 +386,14 @@ Session 不存在、普通用户密码版本不一致或 Token 无效时统一�
 | HTTP | 业务码 | 名称 |
 |------|--------|------|
 | 400 | `40010` | `AUTH_CHANNEL_DISABLED` |
-| 400 | `40011` | `CODE_FUNCTION_DISABLED` |
+| 400 | `40011` | `CODE_FUNCTION_DISABLED`（历史错误码，不再返回） |
 | 400 | `40012` | `CODE_SEND_TOO_FREQUENT` |
 | 400 | `40013` | `CODE_SEND_LIMIT_EXCEEDED` |
 | 400 | `40014` | `VERIFICATION_CODE_INVALID` |
 | 400 | `40015` | `TARGET_ALREADY_REGISTERED` |
 | 400 | `40016` | `TARGET_NOT_REGISTERED` |
 | 400 | `40017` | `TARGET_ALREADY_BOUND` |
-| 400 | `40018` | `CANNOT_DISABLE_ALL_CHANNELS` |
+| 400 | `40018` | `CANNOT_DISABLE_ALL_CHANNELS`（历史错误码，不再返回） |\n| 400 | `40019` | `LOGIN_PROVIDER_NOT_CONFIGURED` |\n| 502 | `50201` | `CODE_DELIVERY_FAILED` |
 | 401 | `40104` | `REFRESH_TOKEN_INVALID` |
 
 验证码错误与过期统一返回 `VERIFICATION_CODE_INVALID`。登录失败继续使用现有 `INVALID_CREDENTIALS`，避免暴露账号是否存在。
