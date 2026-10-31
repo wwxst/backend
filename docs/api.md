@@ -182,7 +182,7 @@ Authorization: Bearer <accessToken>
 | `pageSize` | 否 | `10` | 每页数量，范围 `1-100` |
 | `keyword` | 否 | 空 | 按账号或昵称模糊搜索，最多 30 个字符 |
 | `status` | 否 | 空 | `0` 禁用，`1` 正常；不传查询全部 |
-| `createdAtOrder` | 否 | 空 | `asc` 创建时间升序，`desc` 降序；不传按 ID 倒序。同一创建时间按 ID 同向排序 |
+| `createdAtOrder` | 否 | 空 | `asc` 创建时间升序，`desc` 降序；不传按 ID 升序。同一创建时间按 ID 同向排序 |
 
 `records` 对应 `SysUserListVO`，字段为 `id`、`username`、`nickname`、`avatar`、`status`、`createdAt`、`updatedAt`。不会返回密码字段。
 
