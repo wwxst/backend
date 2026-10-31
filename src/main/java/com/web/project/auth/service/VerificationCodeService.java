@@ -6,7 +6,6 @@ import com.web.project.auth.dto.SendCodeDTO;
 import com.web.project.auth.model.TargetType;
 import com.web.project.auth.model.VerificationScene;
 import com.web.project.auth.util.ContactNormalizer;
-import com.web.project.channel.model.AuthChannelConfig;
 import com.web.project.channel.service.AuthChannelService;
 import com.web.project.common.error.ErrorCode;
 import com.web.project.common.exception.BusinessException;
@@ -46,9 +45,7 @@ public class VerificationCodeService {
         VerificationScene scene = dto.scene();
         String target = ContactNormalizer.normalize(targetType, dto.target());
 
-        AuthChannelConfig channels = authChannelService.getChannels();
-
-        requireLoginEnabled(channels, targetType, scene);
+        requireLoginEnabled(scene, targetType);
 
         checkSceneEligibility(scene, targetType, target, currentUserId);
 
@@ -89,7 +86,7 @@ public class VerificationCodeService {
             String target,
             String code
     ) {
-        requireLoginEnabled(authChannelService.getChannels(), targetType, scene);
+        requireLoginEnabled(scene, targetType);
 
         if (!codeStore.consumeCode(scene, targetType, target, code)) {
             throw new BusinessException(ErrorCode.VERIFICATION_CODE_INVALID);
@@ -136,9 +133,10 @@ public class VerificationCodeService {
         }
     }
 
-    private void requireLoginEnabled(AuthChannelConfig settings, TargetType targetType, VerificationScene scene) {
-        // 登录总开关只限制登录验证码；注册、重置密码和换绑验证码不受登录开关影响。
-        if (scene == VerificationScene.LOGIN && !settings.loginEnabled(targetType)) {
+    private void requireLoginEnabled(VerificationScene scene, TargetType targetType) {
+        // 仅登录场景读取并检查登录开关；注册、重置密码和换绑流程完全独立。
+        if (scene == VerificationScene.LOGIN
+                && !authChannelService.getChannels().loginEnabled(targetType)) {
             throw new BusinessException(ErrorCode.AUTH_CHANNEL_DISABLED);
         }
     }
