@@ -329,25 +329,14 @@ Content-Type: application/json
 停用后登录、个人资料接口和 Refresh 续期按既有禁用账号规则拒绝；启用后可重新登录。
 接口不主动删除 Redis 会话或修改密码版本，与状态修改重叠的认证请求沿用现有状态检查规则。
 
-## 渠道配置
+## 登录基础配置与服务商配置
 
-`sys_config` 保存 4 个布尔配置：
+登录基础配置只管理两项普通用户登录开关，并选择当前短信服务商。登录开关只影响登录，不影响注册、忘记密码、修改密码或账号换绑。
 
-| key | 说明 |
-|-----|------|
-| `auth.phone.enabled` | 手机号注册、登录和绑定是否可用 |
-| `auth.phone.code.enabled` | 手机验证码是否可用 |
-| `auth.email.enabled` | 邮箱注册、登录和绑定是否可用 |
-| `auth.email.code.enabled` | 邮箱验证码是否可用 |
-
-渠道总开关关闭时，该渠道所有普通用户认证能力不可用；验证码开关关闭时，只禁止验证码能力，密码登录仍可使用。
-
-配置缺失或格式不正确属于服务器故障，返回 500，不按渠道关闭处理。
-
-### 查询渠道配置
+### 查询登录基础配置
 
 ```http
-GET /api/sys-user/auth-channels
+GET /api/sys-user/login-settings
 Authorization: Bearer <accessToken>
 ```
 
@@ -355,33 +344,105 @@ Authorization: Bearer <accessToken>
 
 ```json
 {
-  "phoneEnabled": true,
-  "phoneCodeEnabled": true,
-  "emailEnabled": true,
-  "emailCodeEnabled": true
+  "phoneLoginEnabled": true,
+  "emailLoginEnabled": true,
+  "smsProvider": "aliyun"
 }
 ```
 
-### 修改渠道配置
+### 更新登录基础配置
 
 ```http
-PUT /api/sys-user/auth-channels/{channel}
+PUT /api/sys-user/login-settings
 Authorization: Bearer <accessToken>
 Content-Type: application/json
 ```
-
-`channel` 取 `phone` 或 `email`。
 
 请求：
 
 ```json
 {
-  "enabled": false,
-  "codeEnabled": false
+  "phoneLoginEnabled": true,
+  "emailLoginEnabled": true,
+  "smsProvider": "aliyun"
 }
 ```
 
-手机和邮箱总开关不能同时关闭，否则返回 `40018`。
+`smsProvider` 取 `aliyun` 或 `tencent`。两个登录开关允许同时关闭。手机号或邮箱登录关闭时，密码登录和验证码登录都会被拒绝；注册、重置密码和换绑不受登录开关影响。
+
+### 短信服务商配置
+
+服务商配置使用独立接口，敏感密钥写入时通过 AES-GCM 加密；查询响应只返回 `accessKeySecretConfigured` 或 `secretKeyConfigured`，不会回传原始密钥。更新时密钥留空表示保留已保存的密钥。
+
+阿里云配置：
+
+```http
+GET /api/sys-user/login-providers/sms/aliyun
+PUT /api/sys-user/login-providers/sms/aliyun
+Authorization: Bearer <accessToken>
+```
+
+PUT 请求：
+
+```json
+{
+  "accessKeyId": "your-access-key-id",
+  "accessKeySecret": "",
+  "signName": "已审核短信签名",
+  "templateCode": "SMS_123456789"
+}
+```
+
+阿里云短信模板变量固定使用 `code`，例如模板正文包含 `${code}`。
+
+腾讯云配置：
+
+```http
+GET /api/sys-user/login-providers/sms/tencent
+PUT /api/sys-user/login-providers/sms/tencent
+Authorization: Bearer <accessToken>
+```
+
+PUT 请求：
+
+```json
+{
+  "secretId": "your-secret-id",
+  "secretKey": "",
+  "sdkAppId": "1400000000",
+  "signName": "已审核短信签名",
+  "templateId": "123456",
+  "region": "ap-guangzhou"
+}
+```
+
+腾讯云短信模板第一个参数用于验证码。当前支持广州、上海、北京、成都、香港和新加坡地域。
+
+### 邮箱 SMTP 配置
+
+```http
+GET /api/sys-user/login-providers/email
+PUT /api/sys-user/login-providers/email
+Authorization: Bearer <accessToken>
+```
+
+PUT 请求：
+
+```json
+{
+  "host": "smtp.example.com",
+  "port": 465,
+  "username": "sender@example.com",
+  "password": "",
+  "fromAddress": "sender@example.com",
+  "fromName": "Atlas",
+  "security": "SSL"
+}
+```
+
+`security` 取 `SSL`、`STARTTLS` 或 `NONE`。SMTP 密码加密保存，查询只返回 `passwordConfigured`，更新时密码留空表示不修改。
+
+手机号验证码通过登录基础配置选中的短信平台发送；邮箱验证码通过 SMTP 发送。若当前登录方式所需的服务商参数尚未完整配置，验证码发送返回 `40019`；服务商发送失败返回 `50201`。
 
 ## 普通用户
 
