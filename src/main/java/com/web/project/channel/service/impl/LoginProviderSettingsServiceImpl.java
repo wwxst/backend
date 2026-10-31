@@ -69,7 +69,7 @@ public class LoginProviderSettingsServiceImpl implements LoginProviderSettingsSe
     @Override
     @Transactional
     public void updateAliyunSmsSettings(AliyunSmsSettingsUpdateDTO dto) {
-        Map<String, String> values = load(List.of(ALIYUN_ACCESS_ID, ALIYUN_ACCESS_SECRET, ALIYUN_SIGN, ALIYUN_TEMPLATE));
+        Map<String, String> values = loadForUpdate(List.of(ALIYUN_ACCESS_ID, ALIYUN_ACCESS_SECRET, ALIYUN_SIGN, ALIYUN_TEMPLATE));
         String secret = preserveOrEncrypt(dto.accessKeySecret(), value(values, ALIYUN_ACCESS_SECRET), "请填写阿里云 AccessKey Secret");
         write(ALIYUN_ACCESS_ID, dto.accessKeyId().trim());
         write(ALIYUN_ACCESS_SECRET, secret);
@@ -116,7 +116,7 @@ public class LoginProviderSettingsServiceImpl implements LoginProviderSettingsSe
     @Override
     @Transactional
     public void updateTencentSmsSettings(TencentSmsSettingsUpdateDTO dto) {
-        Map<String, String> values = load(List.of(
+        Map<String, String> values = loadForUpdate(List.of(
                 TENCENT_SECRET_ID, TENCENT_SECRET_KEY, TENCENT_APP_ID,
                 TENCENT_SIGN, TENCENT_TEMPLATE, TENCENT_REGION
         ));
@@ -176,7 +176,7 @@ public class LoginProviderSettingsServiceImpl implements LoginProviderSettingsSe
     @Override
     @Transactional
     public void updateEmailSettings(EmailLoginSettingsUpdateDTO dto) {
-        Map<String, String> values = load(List.of(
+        Map<String, String> values = loadForUpdate(List.of(
                 EMAIL_HOST, EMAIL_PORT, EMAIL_USERNAME, EMAIL_PASSWORD,
                 EMAIL_FROM, EMAIL_FROM_NAME, EMAIL_SECURITY
         ));
@@ -221,6 +221,16 @@ public class LoginProviderSettingsServiceImpl implements LoginProviderSettingsSe
         }
         return values;
     }
+
+    private Map<String, String> loadForUpdate(List<String> keys) {
+        Map<String, String> values = sysConfigMapper.selectByKeysForUpdate(keys).stream()
+                .collect(Collectors.toMap(SysConfig::getConfigKey, SysConfig::getConfigValue));
+        if (!values.keySet().containsAll(keys)) {
+            throw new IllegalStateException("登录服务商配置缺失，请检查数据库迁移");
+        }
+        return values;
+    }
+
 
     private String value(Map<String, String> values, String key) {
         return values.get(key);
