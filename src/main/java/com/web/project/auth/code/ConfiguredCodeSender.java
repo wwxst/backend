@@ -2,7 +2,6 @@ package com.web.project.auth.code;
 
 import com.web.project.auth.model.TargetType;
 import com.web.project.channel.service.AuthChannelService;
-import com.web.project.channel.service.LoginProviderSettingsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
