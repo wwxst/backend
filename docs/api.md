@@ -689,14 +689,14 @@ Content-Type: application/json
 |------|--------|------|------|
 | 400 | `40000` | `BAD_REQUEST` | 请求参数不正确 |
 | 400 | `40010` | `AUTH_CHANNEL_DISABLED` | 该登录方式暂不可用 |
-| 400 | `40011` | `CODE_FUNCTION_DISABLED` | 验证码功能暂不可用 |
+| 400 | `40011` | `CODE_FUNCTION_DISABLED`（历史错误码，不再返回） | 已由登录开关统一控制 |
 | 400 | `40012` | `CODE_SEND_TOO_FREQUENT` | 验证码发送过于频繁 |
 | 400 | `40013` | `CODE_SEND_LIMIT_EXCEEDED` | 今日验证码发送次数已达上限 |
 | 400 | `40014` | `VERIFICATION_CODE_INVALID` | 验证码无效或已过期 |
 | 400 | `40015` | `TARGET_ALREADY_REGISTERED` | 该手机号或邮箱已注册 |
 | 400 | `40016` | `TARGET_NOT_REGISTERED` | 该手机号或邮箱尚未注册 |
 | 400 | `40017` | `TARGET_ALREADY_BOUND` | 该手机号或邮箱已被绑定 |
-| 400 | `40018` | `CANNOT_DISABLE_ALL_CHANNELS` | 手机号和邮箱不能同时关闭 |
+| 400 | `40018` | `CANNOT_DISABLE_ALL_CHANNELS`（历史错误码，不再返回） | 两个登录开关允许同时关闭 |\n| 400 | `40019` | `LOGIN_PROVIDER_NOT_CONFIGURED` | 当前登录方式尚未完成服务配置 |\n| 502 | `50201` | `CODE_DELIVERY_FAILED` | 验证码发送失败 |
 | 401 | `40101` | `INVALID_CREDENTIALS` | 账号或密码错误 |
 | 401 | `40102` | `LOGIN_STATUS_INVALID` | 登录状态无效或已过期 |
 | 401 | `40104` | `REFRESH_TOKEN_INVALID` | 刷新令牌无效或已过期 |
