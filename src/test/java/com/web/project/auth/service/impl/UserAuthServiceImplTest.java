@@ -57,7 +57,7 @@ class UserAuthServiceImplTest {
     @BeforeEach
     void enableAllChannels() {
         when(authChannelService.getChannels())
-                .thenReturn(new AuthChannelConfig(true, true, true, true));
+                .thenReturn(new AuthChannelConfig(true, true, "aliyun"));
     }
 
     private UserAccount account(Long id, Long passwordVersion, String password, int status) {
@@ -317,7 +317,7 @@ class UserAuthServiceImplTest {
     @Test
     void disabledChannelRejectsLogin() {
         when(authChannelService.getChannels())
-                .thenReturn(new AuthChannelConfig(false, false, true, true));
+                .thenReturn(new AuthChannelConfig(false, true, "aliyun"));
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
@@ -330,16 +330,20 @@ class UserAuthServiceImplTest {
     }
 
     @Test
-    void disabledChannelRejectsRegistrationBeforeConsumingCode() {
-        when(authChannelService.getChannels())
-                .thenReturn(new AuthChannelConfig(false, false, true, true));
+    void disablingPhoneLoginDoesNotDisableRegistration() {
+        when(authChannelService.getChannels()).thenReturn(new AuthChannelConfig(false, true, "aliyun"));
+        when(userAccountMapper.selectByPhone("13800138000")).thenReturn(null);
+        when(snowflakeIdGenerator.nextId()).thenReturn(31L);
+        insertSucceeds();
+        when(authSessionService.createSession(AccountType.USER, 31L, 0L))
+                .thenReturn(new TokenPairVO("access", "refresh"));
 
-        BusinessException exception = assertThrows(BusinessException.class,
-                () -> service.register(new UserRegisterDTO(
-                        "13800138000", TargetType.PHONE, "123456", null)));
-
-        assertEquals(ErrorCode.AUTH_CHANNEL_DISABLED, exception.getErrorCode());
-        verifyNoInteractions(userAccountMapper, verificationCodeService, authSessionService);
+        assertEquals("access", service.register(new UserRegisterDTO(
+                "13800138000", TargetType.PHONE, "123456", null
+        )).accessToken());
+        verify(verificationCodeService).verify(
+                VerificationScene.REGISTER, TargetType.PHONE, "13800138000", "123456"
+        );
     }
 
     @Test
@@ -353,38 +357,34 @@ class UserAuthServiceImplTest {
     }
 
     @Test
-    void disabledCodeFunctionRejectsCodeLoginButAllowsPasswordLogin() {
-        when(authChannelService.getChannels())
-                .thenReturn(new AuthChannelConfig(true, false, true, true));
-        when(userAccountMapper.selectByPhone("13800138000"))
-                .thenReturn(account(3L, 0L, "$hash", 1));
+    void loginSwitchAppliesToBothPasswordAndVerificationCodeLogin() {
+        when(authChannelService.getChannels()).thenReturn(new AuthChannelConfig(false, true, "aliyun"));
 
-        BusinessException exception = assertThrows(BusinessException.class,
+        BusinessException password = assertThrows(BusinessException.class,
+                () -> service.login(new UserLoginDTO(
+                        "13800138000", TargetType.PHONE, "password123", null)));
+        BusinessException code = assertThrows(BusinessException.class,
                 () -> service.login(new UserLoginDTO(
                         "13800138000", TargetType.PHONE, null, "123456")));
 
-        assertEquals(ErrorCode.CODE_FUNCTION_DISABLED, exception.getErrorCode());
-        verifyNoInteractions(verificationCodeService, authSessionService);
-
-        when(passwordEncoder.matches("password123", "$hash")).thenReturn(true);
-        when(authSessionService.createSession(AccountType.USER, 3L, 0L))
-                .thenReturn(new TokenPairVO("access", "refresh"));
-        assertEquals("access", service.login(new UserLoginDTO(
-                "13800138000", TargetType.PHONE, "password123", null)).accessToken());
-        verifyNoInteractions(verificationCodeService);
+        assertEquals(ErrorCode.AUTH_CHANNEL_DISABLED, password.getErrorCode());
+        assertEquals(ErrorCode.AUTH_CHANNEL_DISABLED, code.getErrorCode());
+        verifyNoInteractions(userAccountMapper, verificationCodeService, authSessionService);
     }
 
     @Test
-    void disabledChannelRejectsPasswordResetBeforeConsumingCode() {
-        when(authChannelService.getChannels())
-                .thenReturn(new AuthChannelConfig(false, false, true, true));
+    void disablingPhoneLoginDoesNotDisablePasswordReset() {
+        when(authChannelService.getChannels()).thenReturn(new AuthChannelConfig(false, true, "aliyun"));
+        when(userAccountMapper.selectByPhone("13800138000")).thenReturn(account(32L, 0L, "$old", 1));
+        when(passwordEncoder.encode("newPassword1")).thenReturn("$new");
+        when(userAccountMapper.updatePassword(32L, "$new")).thenReturn(1);
 
-        BusinessException exception = assertThrows(BusinessException.class,
-                () -> service.resetPassword(new ResetPasswordDTO(
-                        "13800138000", TargetType.PHONE, "123456", "newPassword1")));
-
-        assertEquals(ErrorCode.AUTH_CHANNEL_DISABLED, exception.getErrorCode());
-        verifyNoInteractions(userAccountMapper, verificationCodeService, passwordEncoder);
+        assertDoesNotThrow(() -> service.resetPassword(new ResetPasswordDTO(
+                "13800138000", TargetType.PHONE, "123456", "newPassword1"
+        )));
+        verify(verificationCodeService).verify(
+                VerificationScene.RESET_PASSWORD, TargetType.PHONE, "13800138000", "123456"
+        );
     }
 
     @Test
