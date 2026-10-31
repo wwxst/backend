@@ -48,7 +48,7 @@ public class VerificationCodeService {
 
         AuthChannelConfig channels = authChannelService.getChannels();
 
-        requireCodeEnabled(channels, targetType);
+        requireLoginEnabled(channels, targetType, scene);
 
         checkSceneEligibility(scene, targetType, target, currentUserId);
 
@@ -89,7 +89,7 @@ public class VerificationCodeService {
             String target,
             String code
     ) {
-        requireCodeEnabled(authChannelService.getChannels(), targetType);
+        requireLoginEnabled(authChannelService.getChannels(), targetType, scene);
 
         if (!codeStore.consumeCode(scene, targetType, target, code)) {
             throw new BusinessException(ErrorCode.VERIFICATION_CODE_INVALID);
@@ -136,13 +136,10 @@ public class VerificationCodeService {
         }
     }
 
-    private void requireCodeEnabled(AuthChannelConfig channels, TargetType targetType) {
-        if (!channels.enabled(targetType)) {
+    private void requireLoginEnabled(AuthChannelConfig settings, TargetType targetType, VerificationScene scene) {
+        // 登录总开关只限制登录验证码；注册、重置密码和换绑验证码不受登录开关影响。
+        if (scene == VerificationScene.LOGIN && !settings.loginEnabled(targetType)) {
             throw new BusinessException(ErrorCode.AUTH_CHANNEL_DISABLED);
-        }
-
-        if (!channels.codeEnabled(targetType)) {
-            throw new BusinessException(ErrorCode.CODE_FUNCTION_DISABLED);
         }
     }
 
